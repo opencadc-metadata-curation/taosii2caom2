@@ -514,7 +514,7 @@ def to_caom2():
     # blueprints = _build_blueprints(uris)
     # result = gen_proc(args, blueprints)
     obs = build_from_hdf5(args)
-    mc.write_obs_to_file(obs, f'./data/{obs.observation_id}.actual.xml')
+    mc.write_obs_to_file(obs, f'./{obs.observation_id}.actual.xml')
     logging.debug(f'Done {APPLICATION} processing.')
     return 1
 
