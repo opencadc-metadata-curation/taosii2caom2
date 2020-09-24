@@ -3,7 +3,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2020.                            (c) 2020.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -68,69 +68,141 @@
 #
 
 """
-Implements the default entry point functions for the workflow 
-application.
-
-'run' executes based on either provided lists of work, or files on disk.
-'run_by_state' executes incrementally, usually based on time-boxed 
-intervals.
+This module implements the ObsBlueprint mapping, as well as the workflow 
+entry point that executes the workflow.
 """
 
+import importlib
 import logging
+import os
 import sys
 import traceback
 
-from caom2pipe import run_composable as rc
-from blank2caom2 import APPLICATION, BlankName
+from caom2 import Observation
+from caom2utils import ObsBlueprint, get_gen_proc_arg_parser, gen_proc
+from caom2pipe import manage_composable as mc
 
 
-META_VISITORS = []
-DATA_VISITORS = []
+__all__ = ['taosii_main_app', 'update', 'TAOSIIName', 'COLLECTION',
+           'APPLICATION', 'ARCHIVE', 'to_caom2']
 
 
-def _run():
+APPLICATION = 'taosii2caom2'
+COLLECTION = 'taosii'
+ARCHIVE = 'taosii'
+
+
+class TAOSIIName(mc.StorageName):
+    """Naming rules:
+    - support mixed-case file name storage, and mixed-case obs id values
+    - support uncompressed files in storage
     """
-    Uses a todo file to identify the work to be done.
 
-    :return 0 if successful, -1 if there's any sort of failure. Return status
-        is used by airflow for task instance management and reporting.
+    TAOSII_NAME_PATTERN = '*'
+
+    def __init__(self, obs_id=None, fname_on_disk=None, file_name=None):
+        self.fname_in_ad = file_name
+        super(TAOSIIName, self).__init__(
+            obs_id, COLLECTION, TAOSIIName.TAOSII_NAME_PATTERN, fname_on_disk)
+
+    def is_valid(self):
+        return True
+
+
+def accumulate_bp(bp, uri):
+    """Configure the telescope-specific ObsBlueprint at the CAOM model 
+    Observation level."""
+    logging.debug('Begin accumulate_bp.')
+    bp.configure_position_axes((1,2))
+    bp.configure_time_axis(3)
+    bp.configure_energy_axis(4)
+    bp.configure_polarization_axis(5)
+    bp.configure_observable_axis(6)
+    logging.debug('Done accumulate_bp.')
+
+
+def update(observation, **kwargs):
+    """Called to fill multiple CAOM model elements and/or attributes (an n:n
+    relationship between TDM attributes and CAOM attributes). Must have this
+    signature for import_module loading and execution.
+
+    :param observation A CAOM Observation model instance.
+    :param **kwargs Everything else."""
+    logging.debug('Begin update.')
+    mc.check_param(observation, Observation)
+
+    headers = kwargs.get('headers')
+    fqn = kwargs.get('fqn')
+    uri = kwargs.get('uri')
+    taosii_name = None
+    if uri is not None:
+        taosii_name = TAOSIIName(artifact_uri=uri)
+    if fqn is not None:
+        taosii_name = TAOSIIName(file_name=os.path.basename(fqn))
+    if taosii_name is None:
+        raise mc.CadcException(f'Need one of fqn or uri defined for '
+                               f'{observation.observation_id}')
+
+
+    logging.debug('Done update.')
+    return observation
+
+
+def _build_blueprints(uris):
+    """This application relies on the caom2utils fits2caom2 ObsBlueprint
+    definition for mapping FITS file values to CAOM model element
+    attributes. This method builds the DRAO-ST blueprint for a single
+    artifact.
+
+    The blueprint handles the mapping of values with cardinality of 1:1
+    between the blueprint entries and the model attributes.
+
+    :param uris The artifact URIs for the files to be processed."""
+    module = importlib.import_module(__name__)
+    blueprints = {}
+    for uri in uris:
+        blueprint = ObsBlueprint(module=module)
+        if not mc.StorageName.is_preview(uri):
+            accumulate_bp(blueprint, uri)
+        blueprints[uri] = blueprint
+    return blueprints
+
+
+def _get_uris(args):
+    result = []
+    if args.local:
+        for ii in args.local:
+            file_id = mc.StorageName.remove_extensions(os.path.basename(ii))
+            file_name = f'{file_id}.fits'
+            result.append(TAOSIIName(file_name=file_name).file_uri)
+    elif args.lineage:
+        for ii in args.lineage:
+            result.append(ii.split('/', 1)[1])
+    else:
+        raise mc.CadcException(
+            f'Could not define uri from these args {args}')
+    return result
+
+
+def to_caom2():
+    """This function is called by pipeline execution. It must have this name.
     """
-    return rc.run_by_todo(config=None, name_builder=None, 
-                          command_name=APPLICATION,
-                          meta_visitors=META_VISITORS, 
-                          data_visitors=DATA_VISITORS, chooser=None)
+    args = get_gen_proc_arg_parser().parse_args()
+    uris = _get_uris(args)
+    blueprints = _build_blueprints(uris)
+    result = gen_proc(args, blueprints)
+    logging.debug(f'Done {APPLICATION} processing.')
+    return result
+           
 
-
-def run():
-    """Wraps _run in exception handling, with sys.exit calls."""
+def taosii_main_app():
+    args = get_gen_proc_arg_parser().parse_args()
     try:
-        result = _run()
+        result = to_caom2()
         sys.exit(result)
     except Exception as e:
-        logging.error(e)
+        logging.error(f'Failed {APPLICATION} execution for {args}.')
         tb = traceback.format_exc()
         logging.debug(tb)
         sys.exit(-1)
 
-
-def _run_state():
-    """Uses a state file with a timestamp to control which entries will be
-    processed.
-    """
-    return rc.run_by_state(config=None, name_builder=None,
-                           command_name=APPLICATION, 
-                           bookmark_name=None, meta_visitors=META_VISITORS,
-                           data_visitors=DATA_VISITORS, end_time=None,
-                           source=None, chooser=None)
-
-
-def run_state():
-    """Wraps _run_state in exception handling."""
-    try:
-        _run_state()
-        sys.exit(0)
-    except Exception as e:
-        logging.error(e)
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)

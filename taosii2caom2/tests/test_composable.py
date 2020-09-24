@@ -3,7 +3,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2020.                            (c) 2020.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,8 +66,40 @@
 #
 # ***********************************************************************
 #
-from blank2caom2 import BlankName
+
+import os
+import test_main_app
+
+from mock import Mock, patch
+
+from taosii2caom2 import composable, TAOSIIName
 
 
-def test_is_valid():
-    assert BlankName('anything').is_valid()
+def test_run_by_state():
+    pass
+
+
+@patch('caom2pipe.execute_composable.OrganizeExecutesWithDoOne.do_one')
+def test_run(run_mock):
+    test_obs_id = 'TEST_OBS_ID'
+    test_f_id = 'test_file_id'
+    test_f_name = f'{test_f_id}.fits'
+    getcwd_orig = os.getcwd
+    os.getcwd = Mock(return_value=test_main_app.TEST_DATA_DIR)
+    try:
+        # execution
+        composable._run()
+        assert run_mock.called, 'should have been called'
+        args, kwargs = run_mock.call_args
+        test_storage = args[0]
+        assert isinstance(
+            test_storage, TAOSIIName), type(test_storage)
+        assert test_storage.obs_id == test_obs_id, 'wrong obs id'
+        assert test_storage.file_name == test_f_name, 'wrong file name'
+        assert test_storage.fname_on_disk == test_f_name, \
+            'wrong fname on disk'
+        assert test_storage.url is None, 'wrong url'
+        assert test_storage.lineage == \
+            f'{test_f_id}/ad:taosii/{test_f_name}', 'wrong lineage'
+    finally:
+        os.getcwd = getcwd_orig

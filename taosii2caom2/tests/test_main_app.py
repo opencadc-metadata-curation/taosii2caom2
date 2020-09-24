@@ -3,7 +3,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2020.                            (c) 2020.
+#  (c) 2019.                            (c) 2019.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -67,39 +67,70 @@
 # ***********************************************************************
 #
 
+from mock import patch
+
+from taosii2caom2 import main_app, APPLICATION, COLLECTION, TAOSIIName
+from taosii2caom2 import ARCHIVE
+from caom2pipe import manage_composable as mc
+
+import glob
 import os
-import test_main_app
+import sys
 
-from mock import Mock, patch
-
-from blank2caom2 import composable, BlankName
-
-
-def test_run_by_state():
-    pass
+THIS_DIR = os.path.dirname(os.path.realpath(__file__))
+TEST_DATA_DIR = os.path.join(THIS_DIR, 'data')
+PLUGIN = os.path.join(os.path.dirname(THIS_DIR), 'main_app.py')
 
 
-@patch('caom2pipe.execute_composable.OrganizeExecutesWithDoOne.do_one')
-def test_run(run_mock):
-    test_obs_id = 'TEST_OBS_ID'
-    test_f_id = 'test_file_id'
-    test_f_name = f'{test_f_id}.fits'
-    getcwd_orig = os.getcwd
-    os.getcwd = Mock(return_value=test_main_app.TEST_DATA_DIR)
+def pytest_generate_tests(metafunc):
+    obs_id_list = glob.glob(f'{TEST_DATA_DIR}/*.fits.header')
+    metafunc.parametrize('test_name', obs_id_list)
+
+
+@patch('caom2utils.fits2caom2.CadcDataClient')
+def test_main_app(data_client_mock, test_name):
+    basename = os.path.basename(test_name)
+    extension = '.fz'
+    file_name = basename.replace('.header', extension)
+    taosii_name = TAOSIIName(file_name=file_name)
+    obs_path = f'{TEST_DATA_DIR}/{taosii_name.obs_id}.expected.xml'
+    output_file = f'{TEST_DATA_DIR}/{basename}.actual.xml'
+
+    if os.path.exists(output_file):
+        os.unlink(output_file)
+
+    local = _get_local(basename)
+
+    data_client_mock.return_value.get_file_info.side_effect = _get_file_info
+
+    sys.argv = \
+        (f'{APPLICATION} --no_validate --local {local} --observation '
+         f'{COLLECTION} {taosii_name.obs_id} -o {output_file} --plugin '
+         f'{PLUGIN} --module {PLUGIN} --lineage {_get_lineage(taosii_name)}'
+         ).split()
+    print(sys.argv)
     try:
-        # execution
-        composable._run()
-        assert run_mock.called, 'should have been called'
-        args, kwargs = run_mock.call_args
-        test_storage = args[0]
-        assert isinstance(
-            test_storage, BlankName), type(test_storage)
-        assert test_storage.obs_id == test_obs_id, 'wrong obs id'
-        assert test_storage.file_name == test_f_name, 'wrong file name'
-        assert test_storage.fname_on_disk == test_f_name, \
-            'wrong fname on disk'
-        assert test_storage.url is None, 'wrong url'
-        assert test_storage.lineage == \
-            f'{test_f_id}/ad:blank/{test_f_name}', 'wrong lineage'
-    finally:
-        os.getcwd = getcwd_orig
+        main_app.to_caom2()
+    except Exception as e:
+        import logging
+        import traceback
+        logging.error(traceback.format_exc())
+
+    compare_result = mc.compare_observations(output_file, obs_path)
+    if compare_result is not None:
+        raise AssertionError(compare_result)
+    # assert False  # cause I want to see logging messages
+
+
+def _get_file_info(archive, file_id):
+    return {'type': 'application/fits'}
+
+
+def _get_lineage(blank_name):
+    result = mc.get_lineage(ARCHIVE, blank_name.product_id,
+                            f'{blank_name.file_name}')
+    return result
+
+
+def _get_local(obs_id):
+    return f'{TEST_DATA_DIR}/{obs_id}.fits.header'
