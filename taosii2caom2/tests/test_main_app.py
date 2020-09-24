@@ -67,9 +67,7 @@
 # ***********************************************************************
 #
 
-from mock import patch
-
-from taosii2caom2 import main_app, APPLICATION, COLLECTION, TAOSIIName
+from taosii2caom2 import main_app, TAOSIIName
 from taosii2caom2 import ARCHIVE
 from caom2pipe import manage_composable as mc
 
@@ -83,40 +81,41 @@ PLUGIN = os.path.join(os.path.dirname(THIS_DIR), 'main_app.py')
 
 
 def pytest_generate_tests(metafunc):
-    obs_id_list = glob.glob(f'{TEST_DATA_DIR}/*.fits.header')
+    obs_id_list = glob.glob(f'{TEST_DATA_DIR}/*.h5')
     metafunc.parametrize('test_name', obs_id_list)
 
 
-@patch('caom2utils.fits2caom2.CadcDataClient')
-def test_main_app(data_client_mock, test_name):
-    basename = os.path.basename(test_name)
-    extension = '.fz'
-    file_name = basename.replace('.header', extension)
-    taosii_name = TAOSIIName(file_name=file_name)
-    obs_path = f'{TEST_DATA_DIR}/{taosii_name.obs_id}.expected.xml'
-    output_file = f'{TEST_DATA_DIR}/{basename}.actual.xml'
+# def test_read():
+#     fqn = os.path.join(TEST_DATA_DIR, 'taosABC_dev00_starid00001.h5')
+#     from astropy.table import Table
+#     t = Table.read(fqn, format='hdf5')
+#     assert t is not None, 'result expected'
 
-    if os.path.exists(output_file):
-        os.unlink(output_file)
 
-    local = _get_local(basename)
+# def test_read_2():
+#     fqn = os.path.join(TEST_DATA_DIR, '20190805T024026_f060_s00001.h5')
+#     from astropy.table import Table
+#     t = Table.read(fqn, format='hdf5')
+#     assert t is not None, 'result expected'
 
-    data_client_mock.return_value.get_file_info.side_effect = _get_file_info
 
+def test_main_app(test_name):
+    storage_name = TAOSIIName(file_name=os.path.basename(test_name))
+    local = os.path.join(TEST_DATA_DIR, storage_name.file_name)
+    plugin = None
+    product_id = 'pixel'
+    output_file = '{}/{}.actual.xml'.format(TEST_DATA_DIR, storage_name.obs_id)
+    lineage = '{}/ad:TAOSII/{}'.format(product_id, storage_name.file_name)
     sys.argv = \
-        (f'{APPLICATION} --no_validate --local {local} --observation '
-         f'{COLLECTION} {taosii_name.obs_id} -o {output_file} --plugin '
-         f'{PLUGIN} --module {PLUGIN} --lineage {_get_lineage(taosii_name)}'
-         ).split()
+        (f'{main_app.APPLICATION} --no_validate --local {local} '
+         f'--plugin {plugin} --module {plugin} --observation TAOSII '
+         f'{storage_name.obs_id} -o {output_file} --lineage {lineage}').split()
     print(sys.argv)
-    try:
-        main_app.to_caom2()
-    except Exception as e:
-        import logging
-        import traceback
-        logging.error(traceback.format_exc())
+    main_app.to_caom2()
 
-    compare_result = mc.compare_observations(output_file, obs_path)
+    expected_fqn = os.path.join(TEST_DATA_DIR,
+                                f'{storage_name.obs_id}.expected.xml')
+    compare_result = mc.compare_observations(output_file, expected_fqn)
     if compare_result is not None:
         raise AssertionError(compare_result)
     # assert False  # cause I want to see logging messages

@@ -66,8 +66,17 @@
 #
 # ***********************************************************************
 #
-from taosii2caom2 import BlankName
+
+from taosii2caom2 import TAOSIIName
 
 
 def test_is_valid():
-    assert BlankName('anything').is_valid()
+    assert TAOSIIName('20190805T024026_f060_s00001').is_valid()
+
+
+def test_storage_name():
+    test_f_name = '20190805T024026_f060_s00001.h5'
+    test_subject = TAOSIIName(file_name=test_f_name)
+    assert test_subject.obs_id == 'f060_s00001', 'wrong obs id'
+    assert test_subject.file_name == test_f_name, 'wrong file name'
+    assert test_subject.product_id == 'pixel', 'wrong product id'
