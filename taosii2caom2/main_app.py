@@ -202,8 +202,8 @@ def build_time(seconds, microseconds):
 
 def build_position(hdf5_wcs, window, telescope):
     h = Header()
-    logging.error(hdf5_wcs)
-    logging.error(window)
+    # logging.error(hdf5_wcs)
+    # logging.error(window)
     h['NAXIS1'] = window['X1'].data[telescope] - window['X0'].data[telescope] + 1
     h['NAXIS2'] = window['Y1'].data[telescope] - window['Y0'].data[telescope] + 1
     h['CRVAL1'] = hdf5_wcs['CRVAL1'].data[telescope]
@@ -258,6 +258,8 @@ def build_position(hdf5_wcs, window, telescope):
 
 def build_from_hdf5(args):
     obs = None
+    if args.in_obs_xml:
+        obs = mc.read_obs_from_file(args.in_obs_xml.name)
     index = 0
     for f_name in args.local:
         product_id = args.lineage[index].split('/')[0]
@@ -323,16 +325,17 @@ def build_from_hdf5(args):
                             project=COLLECTION,
                             title=None)
 
-        obs = SimpleObservation(collection=COLLECTION,
-                                observation_id=args.observation[1],
-                                sequence_number=None,
-                                intent=ObservationIntentType.SCIENCE,
-                                type='FIELD',
-                                proposal=proposal,
-                                telescope=taos,
-                                instrument=None,
-                                target=target,
-                                meta_release=release_date)
+        if obs is None:
+            obs = SimpleObservation(collection=COLLECTION,
+                                    observation_id=args.observation[1],
+                                    sequence_number=None,
+                                    intent=ObservationIntentType.SCIENCE,
+                                    type='FIELD',
+                                    proposal=proposal,
+                                    telescope=taos,
+                                    instrument=None,
+                                    target=target,
+                                    meta_release=release_date)
 
         provenance = Provenance(name=COLLECTION,
                                 version='{}.{}'.format(
@@ -412,12 +415,12 @@ class TAOSIIName(mc.StorageName):
 
     TAOSII_NAME_PATTERN = '*'
 
-    def __init__(self, file_name=None):
+    def __init__(self, file_name=None, entry=None):
         self._file_name = file_name
         self._obs_id = TAOSIIName.get_obs_id(file_name)
         super(TAOSIIName, self).__init__(
             self._obs_id, COLLECTION, TAOSIIName.TAOSII_NAME_PATTERN,
-            file_name)
+            file_name, entry=entry)
 
     @property
     def file_name(self):
@@ -514,7 +517,7 @@ def to_caom2():
     # blueprints = _build_blueprints(uris)
     # result = gen_proc(args, blueprints)
     obs = build_from_hdf5(args)
-    mc.write_obs_to_file(obs, f'./data/{obs.observation_id}.actual.xml')
+    mc.write_obs_to_file(obs, f'./{obs.observation_id}.actual.xml')
     logging.debug(f'Done {APPLICATION} processing.')
     return 1
 
