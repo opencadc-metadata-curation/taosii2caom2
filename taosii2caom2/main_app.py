@@ -127,287 +127,346 @@ Position:
 
 """
 
-import importlib
-import logging
-import os
-import sys
-import traceback
-
-from datetime import datetime
+import h5py
 
 from astropy import wcs
-from astropy.table import Table
-from astropy.time import Time as AstroTime
-from astropy.io.fits import Header
+from datetime import datetime
+from os.path import basename
 
-from caom2utils import get_gen_proc_arg_parser, gen_proc, ObsBlueprint
+from caom2 import CalibrationLevel, ProductType, DataProductType
+from caom2 import ObservationIntentType
 
-from caom2 import SpectralWCS, RefCoord, CoordAxis1D, Axis, CoordRange1D
-from caom2 import Telescope, SimpleObservation, ObservationIntentType, Plane
-from caom2 import Artifact, ProductType, ReleaseType, TemporalWCS
-from caom2 import SpatialWCS, Chunk, Part, Coord2D, CoordFunction2D
-from caom2 import CoordAxis2D, Dimension2D, DataProductType, Target
-from caom2 import CalibrationLevel, TargetType, Provenance, Proposal
-from caom2 import CoordPolygon2D, ValueCoord2D, Observation
-
-from caom2pipe import manage_composable as mc
+from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
+from caom2pipe.astro_composable import build_ra_dec_as_deg
+from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
+from caom2pipe.manage_composable import CadcException, StorageName, to_float
 
 
-__all__ = ['APPLICATION', 'ARCHIVE', 'to_caom2', 'taosii_main_app',
-           'COLLECTION', 'TAOSIIName']
+__all__ = ['APPLICATION', 'PointingMapping', 'SingleMapping', 'TAOSIIName', 'TimeseriesMapping']
 
 
 APPLICATION = 'taosii2caom2'
-COLLECTION = 'TAOSII'
-ARCHIVE = 'TAOSII'
 
 
-def build_energy():
-    # units are nm
-    min = 400
-    max = 800
-    central_wl = (min + max) / 2.0  # = 1200.0 / 2.0 == 600.0 nm
-    fwhm = (max - min)
-    ref_coord1 = RefCoord(0.5, central_wl - fwhm / 2.0)  # == 100.0 nm
-    ref_coord2 = RefCoord(1.5, central_wl + fwhm / 2.0)  # == 500.0 nm
-    axis = CoordAxis1D(axis=Axis(ctype='WAVE', cunit='nm'))
-    axis.range = CoordRange1D(ref_coord1, ref_coord2)
-    energy = SpectralWCS(axis=axis,
-                         specsys='TOPOCENT',
-                         ssyssrc='TOPOCENT',
-                         ssysobs='TOPOCENT',
-                         bandpass_name='CLEAR')
-    return energy
+class SingleMapping(TelescopeMapping):
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, headers=None, clients=clients, observable=observable)
+        self._h5_file = h5file
+        self._prefix = None
+
+    def accumulate_blueprint(self, bp, application=None):
+        """
+        JJK - 17-03-22
+
+         v = {"Observation":
+             {"observationID":  f"{fobj['header'][]}",
+              "type": f"{fobj['header']['run']['obstype']}",
+              "metaRelease": now,
+              "algorithm": {"name": "/header/run/exptype"},
+              "instrument": {"name": "/header/run/origin",
+                             "keywords": f"{fobj['header']['run']['exptype']}"},
+              "proposaal": {"id": "/header/run/run_seq",
+                            "pi": f"{fobj[['header']['run']['observer']}",
+                            "project": "TAOS2",
+                            "title": "Transneptunian Automated Occultation Survey",
+                            "keywords": "Kuiper Belt, Trans Neptunian Object, Occultations"
+                            },
+              "target": {"name": f"{fobj['header']['pointing']['field_id']}",
+                         "type": f"{fobj['header']['run']['imgtype']}",
+                         "targetID": f"{fobj['haeder']['object']['obj_type']}:{fobj['header']['object']['obj_id']}",
+                         "type": f"{fobj['header']['object']['obj_type']}"
+                         },
+              # "telescope": {"name": f"{fobj['header']['device']}"
+              "telescope": {
+                  "name": "TAOS-II",
+                  # Long = -115.454
+                  # Lat  =   31.041
+                  # Elev = 2820m
+                  "geoLocationX": "",
+                  "geoLocationY": "",
+                  "geoLocationZ": "",
+                        }
+              "environment": {
+                  "ambientTemp": "db.taos2.temperature"
+              }
+          "Plane": {
+              "productID": ""
+          }
+        }
+
+        :param bp:
+        :param application:
+        :return:
+        """
+        super().accumulate_blueprint(bp, APPLICATION)
+        bp.configure_time_axis(3)
+        bp.configure_energy_axis(4)
+        """
+        need n WCS instances - one per site, so three per file, so, how
+        to know when to create those, and how many to create?
+        - I think that knowing there are n (three) per file is just a thing 
+        that is known ahead of time, and that the path to the 'n' bits is
+        part of the construction of HCF5Parser
+        - then, the separate WCSParser bits are constructed as part of that
+        handling?
+        
+        For FITS:
+        e.g. Chunk.position.axis.axis1.ctype = CTYPE1
+
+        For HDF5:
+        e.g. Chunk.position.axis.axis1.ctype = /header/wcs/ctype[0]
+        
+        BUT
+        - need an astropy.wcs.WCS construction for correctness/consistency
+
+        - for the FITS file, the WCS construction is handled by astropy
+        - for the HDF5 file, the WCS construction needs to be handled by
+          blueprint (?) code, so something like:
+          w.wcs.ctype = [value from HDF5 file, which is found by looking 
+                         up the CAOM2 key, which is then used to retrieve
+                         the value from the HDF5 file]
+        """
+        self._prefix = '//header'
+        if self._storage_name.is_lightcurve:
+            self._prefix = '//obs/header'
+        utc_now = datetime.utcnow()
+        bp.set('Observation.intent', self.get_observation_intent(0))
+        bp.set('Plane.dataProductType', DataProductType.IMAGE)
+
+        bp.set_default('Observation.metaRelease', utc_now)
+        bp.set('Plane.dataRelease', utc_now)
+        bp.set('Plane.metaRelease', utc_now)
+
+        bp.set('Observation.type', ([f'{self._prefix}/run/obstype'], 'IMAGE'))
+        bp.set('Observation.instrument.name', ([f'{self._prefix}/run/origin'], None))
+        bp.set('Observation.instrument.keywords', ([f'{self._prefix}/run/exptype'], None))
+        bp.set('Observation.proposal.id', ([f'{self._prefix}/run/run_seq'], None))
+        bp.set('Observation.proposal.pi', ([f'{self._prefix}/run/observer'], None))
+        bp.set('Observation.proposal.project', 'TAOS2')
+        bp.set(
+            'Observation.proposal.title',
+            'Transneptunian Automated Occultation Survey',
+        )
+        bp.set(
+            'Observation.proposal.keywords',
+            set(['Kuiper Belt', 'Trans Neptunian Object', 'Occultations']),
+        )
+
+        # x, y, z = ac.get_location(31.041, -115.454, 2820)
+        bp.set('Observation.telescope.geoLocationX', -2351818.5502637075)
+        bp.set('Observation.telescope.geoLocationY', -4940894.8697881885)
+        bp.set('Observation.telescope.geoLocationZ', 3271243.2086214763)
+
+        bp.set('Artifact.productType', self._storage_name.get_product_type)
+
+        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
+        bp.set('Chunk.time.axis.axis.cunit', 'd')
+        bp.set('Chunk.time.axis.range.start.pix', 0.5)
+        bp.set('Chunk.time.axis.range.end.pix', 1.5)
+        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
+        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+
+        # SGw - 23-07-22
+        # Detector energy information from Figure 4 here:
+        # https://www.spiedigitallibrary.org/proceedings/Download?urlId=10.1117%2F12.2561204
+        #
+        # This reference says there is no filter:
+        # https://www.spiedigitallibrary.org/conference-proceedings-of-spie/9908/1/
+        # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
+        #
+        # FWHM => 430nm to 830nm
+        bp.set('Chunk.energy.specsys', 'TOPOCENT')
+        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
+        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
+        bp.set('Chunk.energy.bandpassName', 'CLEAR')
+        bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
+        bp.set('Chunk.energy.axis.axis.cunit', 'nm')
+        bp.set('Chunk.energy.axis.range.start.pix', 0.5)
+        bp.set('Chunk.energy.axis.range.start.val', 430)
+        bp.set('Chunk.energy.axis.range.end.pix', 1.5)
+        bp.set('Chunk.energy.axis.range.end.val', 830)
+
+    def get_observation_intent(self, ext):
+        result = ObservationIntentType.CALIBRATION
+        if self._storage_name.get_product_type == ProductType.SCIENCE:
+            result = ObservationIntentType.SCIENCE
+        return result
+
+    def get_target_position_cval1(self, ext):
+        ra, dec_ignore = self._get_target_position()
+        return ra
+
+    def get_target_position_cval2(self, ext):
+        ra_ignore, dec = self._get_target_position()
+        return dec
+
+    def _get_target_position(self):
+        prefix = self._prefix.replace('//', '')
+        obj_ra = self._lookup(f'{prefix}/object/obj_ra')
+        obj_dec = self._lookup(f'{prefix}/object/obj_dec')
+        if obj_ra is None or obj_dec is None:
+            ra = None
+            dec = None
+        else:
+            for o in [obj_dec, obj_ra]:
+                if hasattr(o, 'decode'):
+                    o = o.decode('utf-8')
+            ra, dec = build_ra_dec_as_deg(obj_ra, obj_dec)
+        return ra, dec
+
+    def get_time_axis_range_end(self, ext):
+        prefix = self._prefix.replace('//', '')
+        return self._lookup(f'{prefix}/exposure/num_epochs') - 1
+
+    def _lookup(self, things):
+        def hd5f_visit(name, object):
+            if (
+                isinstance(object, h5py.Dataset)
+                and object.dtype.names is not None
+            ):
+                if things.startswith(name):
+                    for d_name in object.dtype.names:
+                        temp = f'{name}/{d_name}'
+                        if temp == things:
+                            return object[d_name]
+
+        result = self._h5_file.visititems(hd5f_visit)
+        if result is None:
+            self._logger.warning(
+                f'Could not find {things} in {self._storage_name.file_name}'
+            )
+        else:
+            self._logger.debug(f'Found {result} for {things}')
+        return result
+
+    def _update_artifact(self, artifact):
+        self._logger.debug('Begin _update_artifact')
+        for part in artifact.parts.values():
+            for chunk in part.chunks:
+                if (
+                    chunk.time is not None
+                    and chunk.time.axis is not None
+                    and chunk.time.axis.function is not None
+                ):
+                    # time is range, not function, and at this time, the
+                    # blueprint will always set the function
+                    chunk.time.axis.function = None
+                    chunk.time.timesys = None
+                    chunk.time.trefpos = None
+                    chunk.time_axis = None
+                if (
+                    chunk.energy is not None
+                    and chunk.energy.axis is not None
+                    and chunk.energy.axis.function is not None
+                ):
+                    # energy is range, not function, and at this time, the
+                    # blueprint will always set the function
+                    chunk.energy.axis.function = None
+                    chunk.energy_axis = None
+                if (
+                    chunk.position is not None
+                    and chunk.position_axis_1 is not None
+                ):
+                    chunk.position_axis_1 = None
+                    chunk.position_axis_2 = None
+                if self._storage_name.is_lightcurve and chunk.position is not None:
+                    chunk.position = None
+        self._logger.debug('End _update_artifact')
 
 
-def build_time(seconds, microseconds):
-    mjd_start = AstroTime(seconds, format='unix')
-    mjd_start.format = 'mjd'
-    start = RefCoord(0.5, mjd_start.value)
+class PointingMapping(SingleMapping):
 
-    end_ms = seconds + (microseconds / 1e7)
-    mjd_end = AstroTime(end_ms, format='unix')
-    mjd_end.format = 'mjd'
-    end = RefCoord(1.5, mjd_end.value)
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, h5file, clients, observable)
 
-    axis = CoordAxis1D(axis=Axis(ctype='TIME', cunit='d'))
-    axis.range = CoordRange1D(start, end)
-    return TemporalWCS(axis=axis,
-                       timesys='UTC',
-                       trefpos=None,
-                       mjdref=None,
-                       exposure=(microseconds / 1e7),
-                       resolution=None)
+    def accumulate_blueprint(self, bp, application=None):
+        super().accumulate_blueprint(bp)
+        bp.configure_position_axes((1, 2))
+        if self._storage_name.is_lightcurve:
+            bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+        else:
+            bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
 
+        bp.set('Observation.target.name', ([f'{self._prefix}/pointing/field_id'], None))
+        bp.set('Observation.target.type', 'object')
+        bp.set('Observation.target.targetID', ([f'{self._prefix}/object/obj_type'], None))
+        bp.set(
+            'Observation.target_position.point.cval1',
+            'get_target_position_cval1()',
+        )
+        bp.set(
+            'Observation.target_position.point.cval2',
+            'get_target_position_cval2()',
+        )
+        bp.set('Observation.target_position.coordsys', 'FK5')
+        bp.set('Observation.target_position.equinox', ([f'{self._prefix}/object/equinox'], None))
 
-def build_position(hdf5_wcs, window, telescope):
-    h = Header()
-    # logging.error(hdf5_wcs)
-    # logging.error(window)
-    h['NAXIS1'] = window['X1'].data[telescope] - window['X0'].data[telescope] + 1
-    h['NAXIS2'] = window['Y1'].data[telescope] - window['Y0'].data[telescope] + 1
-    h['CRVAL1'] = hdf5_wcs['CRVAL1'].data[telescope]
-    h['CRVAL2'] = hdf5_wcs['CRVAL2'].data[telescope]
-    h['CRPIX1'] = hdf5_wcs['CRPIX1'].data[telescope]
-    h['CRPIX2'] = hdf5_wcs['CRPIX2'].data[telescope]
-    # h['CDELT1'] = 4.0 / 3600.0
-    # h['CDELT2'] = 4.0 / 3600.0
-    #
-    # JJK - use only one of CD* or CDELT* - they are either conflicting or
-    # redundant
-    #
-    h['CD1_1'] = hdf5_wcs['CD1_1'].data[telescope]
-    h['CD1_2'] = hdf5_wcs['CD1_2'].data[telescope]
-    h['CD2_1'] = hdf5_wcs['CD2_1'].data[telescope]
-    h['CD2_2'] = hdf5_wcs['CD2_2'].data[telescope]
-    w = wcs.WCS()
-    bounds = CoordPolygon2D()
-    result = w.calc_footprint(header=h)
-    for ii in result:
-        vertex = ValueCoord2D(ii[0], ii[1])
-        bounds.vertices.append(vertex)
-
-    # ref_coord_x = RefCoord(mc.to_float(pix1), ra)
-    # ref_coord_y = RefCoord(mc.to_float(pix2), dec)
-
-    # coord = Coord2D(ref_coord_x, ref_coord_y)
-    # dimension = Dimension2D(2, 2)
-
-    # pixscale = 4.0 / 3600.0 => 4", per JJK
-    # VLASS takes the cd?? approach shown here
-
-    # function = CoordFunction2D(dimension=dimension,
-    #                            ref_coord=coord,
-    #                            cd11=4.0/3600.0,
-    #                            cd12=0.0,
-    #                            cd21=0.0,
-    #                            cd22=4.0/3600.0)
-    axis = CoordAxis2D(axis1=Axis(ctype='RA---TAN', cunit='deg'),
-                       axis2=Axis(ctype='DEC--TAN', cunit='deg'),
-                       error1=None,
-                       error2=None,
-                       range=None,
-                       bounds=bounds,
-                       function=None)
-
-    return SpatialWCS(axis=axis,
-                      coordsys='FK5',
-                      equinox=2000.0,
-                      resolution=None)
-
-
-def build_from_hdf5(args):
-    obs = None
-    if args.in_obs_xml:
-        obs = mc.read_obs_from_file(args.in_obs_xml.name)
-    index = 0
-    for f_name in args.local:
-        product_id = args.lineage[index].split('/')[0]
-        t_header = Table.read(f_name, format='hdf5', path='header')
-        # logging.error(t_header.colnames)
-        # ['VERSION_MAJOR', 'VERSION_MINOR', 'TIME_IN_SEC',
-        # 'TIME_IN_MICROSEC', 'RUN_ID', 'ORIGIN', 'OBSMODE', 'FIELD', 'RA',
-        # 'DEC', 'EXPTIME', 'NUM_IMAGER']
-        # logging.error(t_header)
-
-        # t_header['RUN_ID'].data[0].decode() - return this string
-        # 20190805T024026
-        # logging.error(t_header['RUN_ID'].data[0].decode())
-        release_date = datetime.strptime(
-            t_header['RUN_ID'].data[0].decode(), '%Y%m%dT%H%M%S')
-
-        t_image = Table.read(f_name, format='hdf5', path='image')
-        # logging.error(t_image.colnames)
-        # ['col0', 'col1', 'col2']
-        # logging.error(t_image)
-        # logging.error(t_image['col0'].data[0])
-        # logging.error(t_image['col0'].data[143999])
-
-        t_catalog = Table.read(f_name, format='hdf5', path='catalog')
-        # logging.error(t_catalog.colnames)
-        # ['CAT_ID', 'GAIA_ID', '2MASS_ID', 'RA', 'DEC', 'TAOS_MAG',
-        # 'GAIA_MAG', '2MASS_JMAG']
-        # logging.error(t_catalog)
-
-        t_imager = Table.read(f_name, format='hdf5', path='imager')
-        # logging.error(t_imager.colnames)
-        # ['TEL_ID', 'CAM_ID', 'IMGR_ID', 'XLOC', 'YLOC']
-        # logging.error(t_imager)
-
-        t_moment = Table.read(f_name, format='hdf5', path='moment')
-        # logging.error(t_moment.colnames)
-        # ['col0', 'col1', 'col2']
-        # logging.error(t_moment)
-
-        t_window = Table.read(f_name, format='hdf5', path='window')
-        # logging.error(t_window.colnames)
-        # ['X0', 'X1', 'Y0', 'Y1', 'XC', 'YC']
-        # logging.error(t_window)
-
-        t_wcs= Table.read(f_name, format='hdf5', path='/wcs/cdmatrix')
-        # ['CRVAL1','CRVAL2','CRPIX1','CRPIX2','CD1_1','CD1_2','CD2_1','CD2_2']
-        # logging.error(t_wcs)
-
-        taos = Telescope(name='TAOS',
-                         geo_location_x=-2354953.99637757,
-                         geo_location_y=-4940160.3636381,
-                         geo_location_z=3270123.70695983)
-
-        target = Target(name=str(t_header['FIELD'].data[0]),
-                        target_type=TargetType.FIELD,
-                        standard=None,
-                        redshift=None,
-                        keywords=None,
-                        moving=None)
-
-        proposal = Proposal(id=COLLECTION,
-                            pi_name=None,
-                            project=COLLECTION,
-                            title=None)
-
-        if obs is None:
-            obs = SimpleObservation(collection=COLLECTION,
-                                    observation_id=args.observation[1],
-                                    sequence_number=None,
-                                    intent=ObservationIntentType.SCIENCE,
-                                    type='FIELD',
-                                    proposal=proposal,
-                                    telescope=taos,
-                                    instrument=None,
-                                    target=target,
-                                    meta_release=release_date)
-
-        provenance = Provenance(name=COLLECTION,
-                                version='{}.{}'.format(
-                                    t_header['VERSION_MAJOR'].data[0],
-                                    t_header['VERSION_MINOR'].data[0]),
-                                project=COLLECTION,
-                                producer=COLLECTION,
-                                run_id=t_header['RUN_ID'].data[0].decode(),
-                                reference='https://taos2.asiaa.sinica.edu.tw/',
-                                last_executed=release_date)
-
-        plane = Plane(product_id=product_id,
-                      data_release=release_date,
-                      meta_release=release_date,
-                      provenance=provenance,
-                      data_product_type=DataProductType.IMAGE,
-                      calibration_level=CalibrationLevel.RAW_STANDARD)
-
-        artifact = mc.get_artifact_metadata(
-            f_name, ProductType.SCIENCE, ReleaseType.DATA,
-            mc.build_uri(COLLECTION, os.path.basename(f_name)))
-
-        # parts are always named '0'
-        part = Part('0')
-
-        # do each of the three telescopes
-        for telescope in [0, 1, 2]:
-            position = build_position(t_wcs,
-                                      t_window,
-                                      telescope)
-
-            time = build_time(t_header['TIME_IN_SEC'].data[0],
-                              t_header['TIME_IN_MICROSEC'].data[0])
-
-            energy = build_energy()
-
-            chunk = Chunk(naxis=4,
-                          position_axis_1=1,
-                          position_axis_2=2,
-                          energy_axis=3,
-                          time_axis=4,
-                          position=position,
-                          energy=energy,
-                          time=time)
-
-            part.chunks.append(chunk)
-
-        artifact.parts.add(part)
-        plane.artifacts.add(artifact)
-        obs.planes.add(plane)
-
-        index += 1
-
-    return obs
+        bp.set('Chunk.position.axis.function.dimension.naxis1', 1920)
+        bp.set('Chunk.position.axis.function.dimension.naxis2', 4608)
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord1.pix',
+            (['/header/wcs/crpix(0)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord1.val',
+            (['/header/wcs/crval(0)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord2.pix',
+            (['/header/wcs/crpix(1)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord2.val',
+            (['/header/wcs/crval(1)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.axis1.ctype', (['/header/wcs/ctype(0)'], None)
+        )
+        bp.set(
+            'Chunk.position.axis.axis1.cunit', (['/header/wcs/cunit(0)'], None)
+        )
+        bp.set(
+            'Chunk.position.axis.axis2.ctype', (['/header/wcs/ctype(1)'], None)
+        )
+        bp.set(
+            'Chunk.position.axis.axis2.cunit', (['/header/wcs/cunit(1)'], None)
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd11',
+            (['/header/wcs/cd(0:0)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd12',
+            (['/header/wcs/cd(0:1)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd21',
+            (['/header/wcs/cd(1:0)'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd22',
+            (['/header/wcs/cd(1:1)'], None),
+        )
+        bp.set('Chunk.position.equinox', ([f'{self._prefix}/object/equinox'], None))
 
 
-# bash-5.0#  /usr/local/hdf5/bin/h5dump 20190805T024026_f060_s00001.h5 | grep DATASET
-#    DATASET "catalog" {
-#    DATASET "header" {
-#    DATASET "image" {
-#    DATASET "imager" {
-#    DATASET "moment" {
-#       DATASET "a" {
-#       DATASET "ap" {
-#       DATASET "b" {
-#       DATASET "bp" {
-#       DATASET "cdmatrix" {
-#       DATASET "order" {
-#    DATASET "window" {
+class TimeseriesMapping(PointingMapping):
+
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, h5file, clients, observable)
+
+    def accumulate_blueprint(self, bp, application=None):
+        super().accumulate_blueprint(bp)
+        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
+        bp.set('Chunk.time.axis.axis.cunit', 'd')
+        bp.set('Chunk.time.axis.range.start.pix', 0)
+        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
+        bp.set('Chunk.time.axis.range.end.pix', 'get_time_axis_range_end()')
+        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+        bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
 
 
-class TAOSIIName(mc.StorageName):
+class TAOSIIName(StorageName):
     """Naming rules:
     - support mixed-case file name storage, and mixed-case obs id values
     - support uncompressed files in storage
@@ -415,120 +474,54 @@ class TAOSIIName(mc.StorageName):
 
     TAOSII_NAME_PATTERN = '*'
 
-    def __init__(self, file_name=None, entry=None):
-        self._file_name = file_name
-        self._obs_id = TAOSIIName.get_obs_id(file_name)
-        super(TAOSIIName, self).__init__(
-            self._obs_id, COLLECTION, TAOSIIName.TAOSII_NAME_PATTERN,
-            file_name, entry=entry)
+    def __init__(self, file_name=None, source_names=None):
+
+        super().__init__(file_name=basename(file_name), source_names=source_names)
 
     @property
-    def file_name(self):
-        return self._file_name
+    def get_product_type(self):
+        if '_star' in self._file_name:
+            return ProductType.SCIENCE
+        else:
+            return ProductType.CALIBRATION
 
     @property
-    def product_id(self):
-        return 'pixel'
+    def is_lightcurve(self):
+        return self._product_id.startswith('taos2lcv_')
 
     def is_valid(self):
         return True
 
-    @staticmethod
-    def get_obs_id(value):
-        bits = value.split('.')[0].split('_')
-        return f'{bits[1]}_{bits[2]}'
+    def set_file_id(self):
+        self._file_id = StorageName.remove_extensions(self._file_name).replace('.hdf5', '').replace('.h5', '')
+
+    def set_obs_id(self):
+        self._obs_id = self._file_id.replace('lcv_obs', '')
 
 
-def accumulate_bp(bp, uri):
-    """Configure the telescope-specific ObsBlueprint at the CAOM model
-    Observation level."""
-    logging.debug('Begin accumulate_bp.')
-    bp.configure_position_axes((1,2))
-    bp.configure_time_axis(3)
-    bp.configure_energy_axis(4)
-    bp.configure_polarization_axis(5)
-    bp.configure_observable_axis(6)
-    logging.debug('Done accumulate_bp.')
+class TAOSII2caom2Visitor(Fits2caom2Visitor):
 
+    def __init__(self, observation, **kwargs):
+        super().__init__(observation, **kwargs)
+        self._h5_file = h5py.File(self._storage_name.source_names[0])
 
-def update(observation, **kwargs):
-    """Called to fill multiple CAOM model elements and/or attributes (an n:n
-    relationship between TDM attributes and CAOM attributes). Must have this
-    signature for import_module loading and execution.
-    :param observation A CAOM Observation model instance.
-    :param **kwargs Everything else."""
-    logging.debug('Begin update.')
-    mc.check_param(observation, Observation)
+    def _get_blueprint(self, instantiated_class):
+        return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
 
-    headers = kwargs.get('headers')
-    fqn = kwargs.get('fqn')
-    uri = kwargs.get('uri')
-    taosii_name = None
-    if uri is not None:
-        taosii_name = TAOSIIName(artifact_uri=uri)
-    if fqn is not None:
-        taosii_name = TAOSIIName(file_name=os.path.basename(fqn))
-    if taosii_name is None:
-        raise mc.CadcException(f'Need one of fqn or uri defined for '
-                               f'{observation.observation_id}')
-    logging.debug('Done update.')
-    return observation
+    def _get_mapping(self, headers):
+        if '_star' in self._storage_name.file_name:
+            result = TimeseriesMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+        elif '_focus' in self._storage_name.file_name or '_point' in self._storage_name.file_name:
+            result = PointingMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+        else:
+            result = SingleMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+        return result
 
-
-def _build_blueprints(uris):
-    """This application relies on the caom2utils fits2caom2 ObsBlueprint
-    definition for mapping FITS file values to CAOM model element
-    attributes. This method builds the DRAO-ST blueprint for a single
-    artifact.
-    The blueprint handles the mapping of values with cardinality of 1:1
-    between the blueprint entries and the model attributes.
-    :param uris The artifact URIs for the files to be processed."""
-    module = importlib.import_module(__name__)
-    blueprints = {}
-    for uri in uris:
-        blueprint = ObsBlueprint(module=module)
-        if not mc.StorageName.is_preview(uri):
-            accumulate_bp(blueprint, uri)
-        blueprints[uri] = blueprint
-    return blueprints
-
-
-def _get_uris(args):
-    result = []
-    if args.local:
-        for ii in args.local:
-            file_id = mc.StorageName.remove_extensions(os.path.basename(ii))
-            file_name = f'{file_id}.fits'
-            result.append(TAOSIIName(file_name=file_name).file_uri)
-    elif args.lineage:
-        for ii in args.lineage:
-            result.append(ii.split('/', 1)[1])
-    else:
-        raise mc.CadcException(
-            f'Could not define uri from these args {args}')
-    return result
-
-
-def to_caom2():
-    """This function is called by pipeline execution. It must have this name.
-    """
-    args = get_gen_proc_arg_parser().parse_args()
-    # uris = _get_uris(args)
-    # blueprints = _build_blueprints(uris)
-    # result = gen_proc(args, blueprints)
-    obs = build_from_hdf5(args)
-    mc.write_obs_to_file(obs, f'./{obs.observation_id}.actual.xml')
-    logging.debug(f'Done {APPLICATION} processing.')
-    return 1
-
-
-def taosii_main_app():
-    args = get_gen_proc_arg_parser().parse_args()
-    try:
-        result = to_caom2()
-        sys.exit(result)
-    except Exception as e:
-        logging.error(f'Failed {APPLICATION} execution for {args}.')
-        tb = traceback.format_exc()
-        logging.debug(tb)
-        sys.exit(-1)
+    def _get_parser(self, headers, blueprint, uri):
+        self._logger.debug(
+            f'Using an Hdf5Parser for {self._storage_name.file_uri} '
+        )
+        # this assumes only working with one file at a time, and also, that
+        # the file is local (which, as of the time of this writing, the file
+        # has to be local, until there is an --fhead option for HDF5 files)
+        return Hdf5Parser(blueprint, uri, self._h5_file, 'images')

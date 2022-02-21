@@ -67,69 +67,70 @@
 # ***********************************************************************
 #
 
-from taosii2caom2 import main_app, TAOSIIName
-from taosii2caom2 import ARCHIVE
-from caom2pipe import manage_composable as mc
+import logging
+import traceback
 
-import glob
-import os
-import sys
+from datetime import datetime
+from os import unlink
+from os.path import basename, dirname, exists, join, realpath
 
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
-TEST_DATA_DIR = os.path.join(THIS_DIR, 'data')
-PLUGIN = os.path.join(os.path.dirname(THIS_DIR), 'main_app.py')
+from cadcdata import FileInfo
+from caom2.diff import get_differences
+from caom2pipe.manage_composable import read_obs_from_file, write_obs_to_file
+from caom2pipe.reader_composable import FileMetadataReader
+from taosii2caom2 import TAOSIIName
+from taosii2caom2 import file2caom2_augmentation
+
+from glob import glob
+
+THIS_DIR = dirname(realpath(__file__))
+TEST_DATA_DIR = join(THIS_DIR, 'data')
+PLUGIN = join(dirname(THIS_DIR), 'main_app.py')
 
 
 def pytest_generate_tests(metafunc):
-    obs_id_list = glob.glob(f'{TEST_DATA_DIR}/*.h5')
+    obs_id_list = glob(f'{TEST_DATA_DIR}/*.h5')
     metafunc.parametrize('test_name', obs_id_list)
 
 
-# def test_read():
-#     fqn = os.path.join(TEST_DATA_DIR, 'taosABC_dev00_starid00001.h5')
-#     from astropy.table import Table
-#     t = Table.read(fqn, format='hdf5')
-#     assert t is not None, 'result expected'
+def test_visitor(test_config, test_name):
+    storage_name = TAOSIIName(file_name=basename(test_name), source_names=[test_name])
+    file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
+    headers = []  # the default behaviour for "not a fits file"
+    metadata_reader = FileMetadataReader()
+    metadata_reader._headers = {storage_name.file_uri: headers}
+    metadata_reader._file_info = {storage_name.file_uri: file_info}
+    kwargs = {
+        'storage_name': storage_name,
+        'metadata_reader': metadata_reader,
+    }
+    expected_fqn = f'{TEST_DATA_DIR}/{storage_name.obs_id}.expected.xml'
+    actual_fqn = expected_fqn.replace('expected', 'actual')
+    if exists(actual_fqn):
+        unlink(actual_fqn)
+    observation = None
+    try:
+        observation = file2caom2_augmentation.visit(observation, **kwargs)
+    except Exception as e:
+        logging.error(e)
+        logging.error(traceback.format_exc())
 
-
-# def test_read_2():
-#     fqn = os.path.join(TEST_DATA_DIR, '20190805T024026_f060_s00001.h5')
-#     from astropy.table import Table
-#     t = Table.read(fqn, format='hdf5')
-#     assert t is not None, 'result expected'
-
-
-def test_main_app(test_name):
-    storage_name = TAOSIIName(file_name=os.path.basename(test_name))
-    local = os.path.join(TEST_DATA_DIR, storage_name.file_name)
-    plugin = None
-    product_id = 'pixel'
-    output_file = '{}/{}.actual.xml'.format(TEST_DATA_DIR, storage_name.obs_id)
-    lineage = '{}/ad:TAOSII/{}'.format(product_id, storage_name.file_name)
-    sys.argv = \
-        (f'{main_app.APPLICATION} --no_validate --local {local} '
-         f'--plugin {plugin} --module {plugin} --observation TAOSII '
-         f'{storage_name.obs_id} -o {output_file} --lineage {lineage}').split()
-    print(sys.argv)
-    main_app.to_caom2()
-
-    expected_fqn = os.path.join(TEST_DATA_DIR,
-                                f'{storage_name.obs_id}.expected.xml')
-    compare_result = mc.compare_observations(output_file, expected_fqn)
+    expected = read_obs_from_file(expected_fqn)
+    _set_release_date_values(observation)
+    compare_result = get_differences(expected, observation)
     if compare_result is not None:
-        raise AssertionError(compare_result)
-    # assert False  # cause I want to see logging messages
+        write_obs_to_file(observation, actual_fqn)
+        compare_text = '\n'.join([r for r in compare_result])
+        msg = f'Differences found in observation {expected.observation_id}\n{compare_text}'
+        raise AssertionError(msg)
+    # assert False
 
 
-def _get_file_info(archive, file_id):
-    return {'type': 'application/fits'}
-
-
-def _get_lineage(blank_name):
-    result = mc.get_lineage(ARCHIVE, blank_name.product_id,
-                            f'{blank_name.file_name}')
-    return result
-
-
-def _get_local(obs_id):
-    return f'{TEST_DATA_DIR}/{obs_id}.fits.header'
+def _set_release_date_values(observation):
+    # the release date is "the time at which the file is received at CADC", which is random, and therfore hard to
+    # test with, so over-ride with a known value before doing the comparison to the expected value
+    release_date = datetime.strptime('2022-05-05T20:39:23.050', '%Y-%m-%dT%H:%M:%S.%f')
+    observation.meta_release = release_date
+    for plane in observation.planes.values():
+        plane.meta_release = release_date
+        plane.data_release = release_date

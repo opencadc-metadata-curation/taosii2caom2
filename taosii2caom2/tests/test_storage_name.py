@@ -71,12 +71,18 @@ from taosii2caom2 import TAOSIIName
 
 
 def test_is_valid():
-    assert TAOSIIName('20190805T024026_f060_s00001').is_valid()
+    assert TAOSIIName('20190805T024026_f060_s00001', ['20190805T024026_f060_s00001']).is_valid()
 
 
-def test_storage_name():
-    test_f_name = '20190805T024026_f060_s00001.h5'
-    test_subject = TAOSIIName(file_name=test_f_name)
-    assert test_subject.obs_id == 'f060_s00001', 'wrong obs id'
-    assert test_subject.file_name == test_f_name, 'wrong file name'
-    assert test_subject.product_id == 'pixel', 'wrong product id'
+def test_storage_name(test_config):
+    for test_f_id in ['taos2lcv_obs_20230118T233621Z_star123987456', 'taos2_20220201T200117Z_cmos13_bias_001']:
+        for prefix in ['', '/data/', 'cadc:TAOSII/']:
+            test_f_name = f'{test_f_id}.h5'
+            source_names = [f'{prefix}{test_f_id}.h5']
+            test_subject = TAOSIIName(file_name=test_f_name, source_names=source_names)
+            assert test_subject.obs_id == test_f_id.replace('lcv_obs', ''), f'wrong obs id {test_subject.obs_id}'
+            assert test_subject.file_name == test_f_name, 'wrong file name'
+            assert test_subject.product_id == test_f_id, 'wrong product id'
+            assert (
+                test_subject.destination_uris[0] == f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
+            ), 'wrong destination uri'

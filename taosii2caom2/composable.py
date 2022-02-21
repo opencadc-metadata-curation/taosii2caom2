@@ -80,13 +80,18 @@ import logging
 import sys
 import traceback
 
-from caom2pipe import name_builder_composable as nbc
-from caom2pipe import run_composable as rc
-from taosii2caom2 import APPLICATION, TAOSIIName
+from caom2pipe.name_builder_composable import GuessingBuilder
+from caom2pipe.run_composable import run_by_todo, run_by_state
+from taosii2caom2 import main_app, file2caom2_augmentation
 
 
 META_VISITORS = []
-DATA_VISITORS = []
+DATA_VISITORS = [file2caom2_augmentation]
+
+
+def _common_init():
+    name_builder = GuessingBuilder(main_app.TAOSIIName)
+    return name_builder
 
 
 def _run():
@@ -96,11 +101,12 @@ def _run():
     :return 0 if successful, -1 if there's any sort of failure. Return status
         is used by airflow for task instance management and reporting.
     """
-    name_builder = nbc.FileNameBuilder(TAOSIIName)
-    return rc.run_by_todo(name_builder=name_builder,
-                          command_name=APPLICATION,
-                          meta_visitors=META_VISITORS, 
-                          data_visitors=DATA_VISITORS)
+    name_builder = _common_init()
+    return run_by_todo(
+        name_builder=name_builder,
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+    )
 
 
 def run():
@@ -115,21 +121,22 @@ def run():
         sys.exit(-1)
 
 
-def _run_state():
+def _run_incremental():
     """Uses a state file with a timestamp to control which entries will be
     processed.
     """
-    name_builder = nbc.FileNameBuilder(TAOSIIName)
-    return rc.run_by_state(name_builder=name_builder,
-                           command_name=APPLICATION,
-                           meta_visitors=META_VISITORS,
-                           data_visitors=DATA_VISITORS)
+    name_builder = _common_init()
+    return run_by_state(
+        name_builder=name_builder,
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+    )
 
 
-def run_state():
+def run_incremental():
     """Wraps _run_state in exception handling."""
     try:
-        _run_state()
+        _run_incremental()
         sys.exit(0)
     except Exception as e:
         logging.error(e)
