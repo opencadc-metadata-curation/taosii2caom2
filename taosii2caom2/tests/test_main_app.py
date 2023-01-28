@@ -94,6 +94,7 @@ def pytest_generate_tests(metafunc):
 
 
 def test_visitor(test_config, test_name):
+    # logging.getLogger('root').setLevel(logging.DEBUG)
     storage_name = TAOSIIName(file_name=basename(test_name), source_names=[test_name])
     file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
     headers = []  # the default behaviour for "not a fits file"

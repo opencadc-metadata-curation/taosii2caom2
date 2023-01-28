@@ -137,7 +137,7 @@ from caom2 import CalibrationLevel, ProductType, DataProductType
 from caom2 import ObservationIntentType
 
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
-from caom2pipe.astro_composable import build_ra_dec_as_deg
+from caom2pipe.astro_composable import add_as_s, build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
 from caom2pipe.manage_composable import CadcException, StorageName, to_float
 
@@ -324,6 +324,7 @@ class SingleMapping(TelescopeMapping):
                 isinstance(object, h5py.Dataset)
                 and object.dtype.names is not None
             ):
+                # 'name' starts without a directory separator
                 if things.startswith(name):
                     for d_name in object.dtype.names:
                         temp = f'{name}/{d_name}'
@@ -460,10 +461,29 @@ class TimeseriesMapping(PointingMapping):
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
         bp.set('Chunk.time.axis.axis.cunit', 'd')
         bp.set('Chunk.time.axis.range.start.pix', 0)
-        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
+        bp.set('Chunk.time.axis.range.start.val', 'get_time_axis_range_start()')
         bp.set('Chunk.time.axis.range.end.pix', 'get_time_axis_range_end()')
         bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
         bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
+
+    def get_time_axis_range_start(self, ext):
+        """
+        JJK/ML 27-01-23
+
+        For each part the MDJ of pixel 0.0 is the value of
+        /header/exposure/mjdstart + /images/site1/header/timing/exposure_offset
+        (where exposure_offset needs to be converted from the units s to units d)
+        """
+        prefix = self._prefix.replace('//', '')
+        mjdstart = self._lookup(f'{prefix}/exposure/mjdstart')
+        offset = self._lookup(f'images/site{ext + 1}/header/timing/exposure_offset')
+        result = None
+        if mjdstart is not None:
+            if offset is None:
+                result = mjdstart
+            else:
+                result = add_as_s(offset, mjdstart)
+        return result
 
 
 class TAOSIIName(StorageName):
