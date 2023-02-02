@@ -265,6 +265,9 @@ class SingleMapping(TelescopeMapping):
         bp.set('Chunk.time.axis.range.end.pix', 1.5)
         bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
         bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+        # JJK 30-01-23
+        # timesys is UTC.
+        bp.set('Chunk.time.timesys', 'UTC')
 
         # SGw - 23-07-22
         # Detector energy information from Figure 4 here:
@@ -275,10 +278,18 @@ class SingleMapping(TelescopeMapping):
         # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
         #
         # FWHM => 430nm to 830nm
+        #
+        # JJK 30-01-23
+        # resolving power: R == Lambda/Delta_Lambda
+        # Where Lambda is the wavelength at the middle of the bandpass and Delta_Lambda is width.  In this case, Lambda
+        # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
+        # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
+        #
         bp.set('Chunk.energy.specsys', 'TOPOCENT')
         bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
         bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
         bp.set('Chunk.energy.bandpassName', 'CLEAR')
+        bp.set('Chunk.energy.resolvingPower', 1.575)
         bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
         bp.set('Chunk.energy.axis.axis.cunit', 'nm')
         bp.set('Chunk.energy.axis.range.start.pix', 0.5)
@@ -352,7 +363,6 @@ class SingleMapping(TelescopeMapping):
                     # time is range, not function, and at this time, the
                     # blueprint will always set the function
                     chunk.time.axis.function = None
-                    chunk.time.timesys = None
                     chunk.time.trefpos = None
                     chunk.time_axis = None
                 if (
@@ -383,10 +393,7 @@ class PointingMapping(SingleMapping):
     def accumulate_blueprint(self, bp, application=None):
         super().accumulate_blueprint(bp)
         bp.configure_position_axes((1, 2))
-        if self._storage_name.is_lightcurve:
-            bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
-        else:
-            bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
+        bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
 
         bp.set('Observation.target.name', ([f'{self._prefix}/pointing/field_id'], None))
         bp.set('Observation.target.type', 'object')
@@ -449,6 +456,9 @@ class PointingMapping(SingleMapping):
             (['/header/wcs/cd(1:1)'], None),
         )
         bp.set('Chunk.position.equinox', ([f'{self._prefix}/object/equinox'], None))
+        # JJK 30-01-23
+        # coordsys: null should likely be coordsys: ICRS
+        bp.set('Chunk.position.coordsys', 'ICRS')
 
 
 class TimeseriesMapping(PointingMapping):
@@ -458,6 +468,7 @@ class TimeseriesMapping(PointingMapping):
 
     def accumulate_blueprint(self, bp, application=None):
         super().accumulate_blueprint(bp)
+        bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
         bp.set('Chunk.time.axis.axis.cunit', 'd')
         bp.set('Chunk.time.axis.range.start.pix', 0)
