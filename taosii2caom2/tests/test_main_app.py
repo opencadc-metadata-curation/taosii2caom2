@@ -128,10 +128,11 @@ def test_visitor(test_config, test_name):
 
 
 def _set_release_date_values(observation):
-    # the release date is "the time at which the file is received at CADC", which is random, and therfore hard to
-    # test with, so over-ride with a known value before doing the comparison to the expected value
-    release_date = datetime.strptime('2022-05-05T20:39:23.050', '%Y-%m-%dT%H:%M:%S.%f')
-    observation.meta_release = release_date
-    for plane in observation.planes.values():
-        plane.meta_release = release_date
-        plane.data_release = release_date
+    if observation is not None:
+        # the release date is "the time at which the file is received at CADC", which is random, and therfore hard to
+        # test with, so over-ride with a known value before doing the comparison to the expected value
+        release_date = datetime.strptime('2022-05-05T20:39:23.050', '%Y-%m-%dT%H:%M:%S.%f')
+        observation.meta_release = release_date
+        for plane in observation.planes.values():
+            plane.meta_release = release_date
+            plane.data_release = release_date

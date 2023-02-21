@@ -78,22 +78,22 @@
                     </caom2:axis>
                     <caom2:coordsys>ICRS</caom2:coordsys>
                     <caom2:equinox>2000.0</caom2:equinox>
-                    <caom2:resolution>1</caom2:resolution>
+                    <caom2:resolution>5.332780354551254e-08</caom2:resolution>
                   </caom2:position>
                   <caom2:energy>
                     <caom2:axis>
                       <caom2:axis>
                         <caom2:ctype>WAVE</caom2:ctype>
-                        <caom2:cunit>nm</caom2:cunit>
+                        <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
                       <caom2:range>
                         <caom2:start>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>430.0</caom2:val>
+                          <caom2:val>4.3e-7</caom2:val>
                         </caom2:start>
                         <caom2:end>
                           <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>830.0</caom2:val>
+                          <caom2:val>8.3e-7</caom2:val>
                         </caom2:end>
                       </caom2:range>
                     </caom2:axis>
@@ -163,21 +163,22 @@
                     </caom2:axis>
                     <caom2:coordsys>ICRS</caom2:coordsys>
                     <caom2:equinox>2000.0</caom2:equinox>
+                    <caom2:resolution>5.332780354551254e-08</caom2:resolution>
                   </caom2:position>
                   <caom2:energy>
                     <caom2:axis>
                       <caom2:axis>
                         <caom2:ctype>WAVE</caom2:ctype>
-                        <caom2:cunit>nm</caom2:cunit>
+                        <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
                       <caom2:range>
                         <caom2:start>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>430.0</caom2:val>
+                          <caom2:val>4.3e-07</caom2:val>
                         </caom2:start>
                         <caom2:end>
                           <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>830.0</caom2:val>
+                          <caom2:val>8.3e-07</caom2:val>
                         </caom2:end>
                       </caom2:range>
                     </caom2:axis>
@@ -247,21 +248,22 @@
                     </caom2:axis>
                     <caom2:coordsys>ICRS</caom2:coordsys>
                     <caom2:equinox>2000.0</caom2:equinox>
+                    <caom2:resolution>5.332780354551254e-08</caom2:resolution>
                   </caom2:position>
                   <caom2:energy>
                     <caom2:axis>
                       <caom2:axis>
                         <caom2:ctype>WAVE</caom2:ctype>
-                        <caom2:cunit>nm</caom2:cunit>
+                        <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
                       <caom2:range>
                         <caom2:start>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>430.0</caom2:val>
+                          <caom2:val>4.3e-07</caom2:val>
                         </caom2:start>
                         <caom2:end>
                           <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>830.0</caom2:val>
+                          <caom2:val>8.3e-07</caom2:val>
                         </caom2:end>
                       </caom2:range>
                     </caom2:axis>

@@ -291,11 +291,12 @@ class SingleMapping(TelescopeMapping):
         bp.set('Chunk.energy.bandpassName', 'CLEAR')
         bp.set('Chunk.energy.resolvingPower', 1.575)
         bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
-        bp.set('Chunk.energy.axis.axis.cunit', 'nm')
+        # units as output by astropy.wcs.WCS
+        bp.set('Chunk.energy.axis.axis.cunit', 'm')
         bp.set('Chunk.energy.axis.range.start.pix', 0.5)
-        bp.set('Chunk.energy.axis.range.start.val', 430)
+        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
         bp.set('Chunk.energy.axis.range.end.pix', 1.5)
-        bp.set('Chunk.energy.axis.range.end.val', 830)
+        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
 
     def get_observation_intent(self, ext):
         result = ObservationIntentType.CALIBRATION
