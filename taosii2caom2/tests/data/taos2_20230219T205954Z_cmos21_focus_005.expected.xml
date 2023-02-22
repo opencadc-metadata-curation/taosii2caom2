@@ -87,16 +87,14 @@
                         <caom2:ctype>WAVE</caom2:ctype>
                         <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>4.3e-07</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>8.3e-07</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>5.6e-07</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
                     <caom2:specsys>TOPOCENT</caom2:specsys>
                     <caom2:ssysobs>TOPOCENT</caom2:ssysobs>
@@ -107,21 +105,19 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>TIME</caom2:ctype>
+                        <caom2:ctype>UTC</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>0.875</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>0.8750115740767797</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>0.8750057870383898</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:mjdref>59994.0</caom2:mjdref>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -170,16 +166,14 @@
                         <caom2:ctype>WAVE</caom2:ctype>
                         <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>4.3e-07</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>8.3e-07</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>5.6e-07</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
                     <caom2:specsys>TOPOCENT</caom2:specsys>
                     <caom2:ssysobs>TOPOCENT</caom2:ssysobs>
@@ -190,21 +184,19 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>TIME</caom2:ctype>
+                        <caom2:ctype>UTC</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>0.875</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>0.8750115740767797</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>0.8750057870383898</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:mjdref>59994.0</caom2:mjdref>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -253,16 +245,14 @@
                         <caom2:ctype>WAVE</caom2:ctype>
                         <caom2:cunit>m</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>4.3e-07</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>8.3e-07</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>5.6e-07</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
                     <caom2:specsys>TOPOCENT</caom2:specsys>
                     <caom2:ssysobs>TOPOCENT</caom2:ssysobs>
@@ -273,21 +263,19 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>TIME</caom2:ctype>
+                        <caom2:ctype>UTC</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
-                      <caom2:range>
-                        <caom2:start>
+                      <caom2:function>
+                        <caom2:naxis>1</caom2:naxis>
+                        <caom2:delta>1.0</caom2:delta>
+                        <caom2:refCoord>
                           <caom2:pix>0.5</caom2:pix>
-                          <caom2:val>0.875</caom2:val>
-                        </caom2:start>
-                        <caom2:end>
-                          <caom2:pix>1.5</caom2:pix>
-                          <caom2:val>0.8750115740767797</caom2:val>
-                        </caom2:end>
-                      </caom2:range>
+                          <caom2:val>0.8750057870383898</caom2:val>
+                        </caom2:refCoord>
+                      </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:mjdref>59994.0</caom2:mjdref>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>

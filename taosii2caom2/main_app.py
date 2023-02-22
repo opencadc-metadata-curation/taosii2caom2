@@ -128,6 +128,8 @@ Position:
 """
 
 import h5py
+import logging
+import traceback
 
 from astropy import wcs
 from datetime import datetime
@@ -139,7 +141,7 @@ from caom2 import ObservationIntentType
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
 from caom2pipe.astro_composable import add_as_s, build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
-from caom2pipe.manage_composable import CadcException, StorageName, to_float
+from caom2pipe.manage_composable import CadcException, StorageName, to_float, ValueRepairCache
 
 
 __all__ = ['APPLICATION', 'PointingMapping', 'SingleMapping', 'TAOSIIName', 'TimeseriesMapping']
@@ -148,7 +150,24 @@ __all__ = ['APPLICATION', 'PointingMapping', 'SingleMapping', 'TAOSIIName', 'Tim
 APPLICATION = 'taosii2caom2'
 
 
+class TaosiiValueRepair(ValueRepairCache):
+
+    VALUE_REPAIR = {
+        'chunk.position.axis.axis1.ctype': {
+            'RA--TAN-SIP': 'RA---TAN-SIP',
+            'DEC-TAN_SIP': 'DEC--TAN-SIP',
+        },
+    }
+
+    def __init__(self):
+        self._value_repair = TaosiiValueRepair.VALUE_REPAIR
+        self._key = None
+        self._values = None
+        self._logger = logging.getLogger(self.__class__.__name__)
+
+
 class SingleMapping(TelescopeMapping):
+
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, headers=None, clients=clients, observable=observable)
         self._h5_file = h5file
@@ -259,44 +278,21 @@ class SingleMapping(TelescopeMapping):
 
         bp.set('Artifact.productType', self._storage_name.get_product_type)
 
-        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
-        bp.set('Chunk.time.axis.axis.cunit', 'd')
-        bp.set('Chunk.time.axis.range.start.pix', 0.5)
-        bp.set('Chunk.time.axis.range.end.pix', 1.5)
-        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
-        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
-        # JJK 30-01-23
-        # timesys is UTC.
-        bp.set('Chunk.time.timesys', 'UTC')
-
-        # SGw - 23-07-22
-        # Detector energy information from Figure 4 here:
-        # https://www.spiedigitallibrary.org/proceedings/Download?urlId=10.1117%2F12.2561204
-        #
-        # This reference says there is no filter:
-        # https://www.spiedigitallibrary.org/conference-proceedings-of-spie/9908/1/
-        # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
-        #
-        # FWHM => 430nm to 830nm
-        #
-        # JJK 30-01-23
-        # resolving power: R == Lambda/Delta_Lambda
-        # Where Lambda is the wavelength at the middle of the bandpass and Delta_Lambda is width.  In this case, Lambda
-        # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
-        # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
-        #
+        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
+        bp.set('Chunk.time.axis.function.refCoord.pix', (['/header/wcs/crpix(2)'], None))
+        bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
+        bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
+        bp.set('Chunk.time.axis.axis.cunit', (['/header/wcs/cunit(2)'], None))
         bp.set('Chunk.energy.specsys', 'TOPOCENT')
         bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
         bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
         bp.set('Chunk.energy.bandpassName', 'CLEAR')
         bp.set('Chunk.energy.resolvingPower', 1.575)
         bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
-        # units as output by astropy.wcs.WCS
-        bp.set('Chunk.energy.axis.axis.cunit', 'm')
-        bp.set('Chunk.energy.axis.range.start.pix', 0.5)
-        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
-        bp.set('Chunk.energy.axis.range.end.pix', 1.5)
-        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
+        bp.set('Chunk.energy.axis.function.refCoord.pix', (['/header/wcs/crpix(3)'], None))
+        bp.set('Chunk.energy.axis.function.refCoord.val', (['/header/wcs/crval(3)'], None))
+        bp.set('Chunk.energy.axis.axis.ctype', (['/header/wcs/ctype(3)'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', (['/header/wcs/cunit(3)'], None))
 
     def get_observation_intent(self, ext):
         result = ObservationIntentType.CALIBRATION
@@ -363,8 +359,96 @@ class SingleMapping(TelescopeMapping):
                 ):
                     # time is range, not function, and at this time, the
                     # blueprint will always set the function
+                    # chunk.time.axis.function = None
+                    # chunk.time.trefpos = None
+                    chunk.time_axis = None
+                if (
+                    chunk.energy is not None
+                    and chunk.energy.axis is not None
+                    and chunk.energy.axis.function is not None
+                ):
+                    # energy is range, not function, and at this time, the
+                    # blueprint will always set the function
+                    # chunk.energy.axis.function = None
+                    chunk.energy_axis = None
+                if (
+                    chunk.position is not None
+                    and chunk.position_axis_1 is not None
+                ):
+                    chunk.position_axis_1 = None
+                    chunk.position_axis_2 = None
+                if self._storage_name.is_lightcurve and chunk.position is not None:
+                    chunk.position = None
+        self._logger.debug('End _update_artifact')
+
+
+class DomeflatMapping(SingleMapping):
+
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, h5file, clients=clients, observable=observable)
+        self._h5_file = h5file
+        self._prefix = None
+
+    def accumulate_blueprint(self, bp, application=None):
+        """
+        :param bp:
+        :param application:
+        :return:
+        """
+        super().accumulate_blueprint(bp, APPLICATION)
+        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
+        bp.set('Chunk.time.axis.axis.cunit', 'd')
+        bp.set('Chunk.time.axis.range.start.pix', 0.5)
+        bp.set('Chunk.time.axis.range.end.pix', 1.5)
+        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
+        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
+        # JJK 30-01-23
+        # timesys is UTC.
+        bp.set('Chunk.time.timesys', 'UTC')
+
+        # SGw - 23-07-22
+        # Detector energy information from Figure 4 here:
+        # https://www.spiedigitallibrary.org/proceedings/Download?urlId=10.1117%2F12.2561204
+        #
+        # This reference says there is no filter:
+        # https://www.spiedigitallibrary.org/conference-proceedings-of-spie/9908/1/
+        # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
+        #
+        # FWHM => 430nm to 830nm
+        #
+        # JJK 30-01-23
+        # resolving power: R == Lambda/Delta_Lambda
+        # Where Lambda is the wavelength at the middle of the bandpass and Delta_Lambda is width.  In this case, Lambda
+        # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
+        # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
+        #
+        bp.set('Chunk.energy.specsys', 'TOPOCENT')
+        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
+        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
+        bp.set('Chunk.energy.bandpassName', 'CLEAR')
+        bp.set('Chunk.energy.resolvingPower', 1.575)
+        bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
+        # units as output by astropy.wcs.WCS
+        bp.set('Chunk.energy.axis.axis.cunit', 'm')
+        bp.set('Chunk.energy.axis.range.start.pix', 0.5)
+        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
+        bp.set('Chunk.energy.axis.range.end.pix', 1.5)
+        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
+
+    def _update_artifact(self, artifact):
+        self._logger.debug('Begin _update_artifact')
+        for part in artifact.parts.values():
+            for chunk in part.chunks:
+                if (
+                    chunk.time is not None
+                    and chunk.time.axis is not None
+                    and chunk.time.axis.function is not None
+                ):
+                    # time is range, not function, and at this time, the
+                    # blueprint will always set the function
                     chunk.time.axis.function = None
-                    chunk.time.trefpos = None
+                    # chunk.time.trefpos = None
                     chunk.time_axis = None
                 if (
                     chunk.energy is not None
@@ -471,12 +555,6 @@ class TimeseriesMapping(PointingMapping):
         super().accumulate_blueprint(bp)
         bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
-        bp.set('Chunk.time.axis.axis.cunit', 'd')
-        bp.set('Chunk.time.axis.range.start.pix', 0)
-        bp.set('Chunk.time.axis.range.start.val', 'get_time_axis_range_start()')
-        bp.set('Chunk.time.axis.range.end.pix', 'get_time_axis_range_end()')
-        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
-        bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
 
     def get_time_axis_range_start(self, ext):
         """
@@ -545,6 +623,12 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             result = TimeseriesMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         elif '_focus' in self._storage_name.file_name or '_point' in self._storage_name.file_name:
             result = PointingMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+        elif (
+            '_domeflat' in self._storage_name.file_name
+            or '_dark' in self._storage_name.file_name
+            or '_bias' in self._storage_name.file_name
+        ):
+            result = DomeflatMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         else:
             result = SingleMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         return result
