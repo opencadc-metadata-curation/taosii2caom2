@@ -85,6 +85,7 @@
                     </caom2:axis>
                     <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
+                    <caom2:exposure>10.0</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -135,6 +136,7 @@
                     </caom2:axis>
                     <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
+                    <caom2:exposure>10.0</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -185,6 +187,7 @@
                     </caom2:axis>
                     <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
+                    <caom2:exposure>10.0</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>

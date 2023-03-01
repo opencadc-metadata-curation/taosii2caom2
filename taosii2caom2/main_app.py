@@ -279,6 +279,7 @@ class SingleMapping(TelescopeMapping):
         bp.set('Artifact.productType', self._storage_name.get_product_type)
 
         bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
+        bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
         bp.set('Chunk.time.axis.function.refCoord.pix', (['/header/wcs/crpix(2)'], None))
         bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
         bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
