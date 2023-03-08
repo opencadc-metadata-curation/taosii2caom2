@@ -1,4 +1,5 @@
-FROM opencadc/cfht2caom2:3.9-buster-slim as builder
+ARG OPENCADC_PYTHON_VERSION=3.9
+FROM opencadc/cfht2caom2:${OPENCADC_PYTHON_VERSION}-buster-slim as builder
   
 USER root
 
@@ -23,6 +24,7 @@ RUN cd /tmp && \
     rm -rf /tmp/h5check-2.0.1
 
 ARG OPENCADC_BRANCH=master
+ARG OPENCADC_MAIN_BRANCH=main
 ARG OPENCADC_REPO=opencadc
 
 RUN cd /tmp && \
@@ -32,13 +34,14 @@ RUN cd /tmp && \
     pip install ./caom2utils && \
     cd ..
 
-RUN pip install git+https://github.com/${OPENCADC_REPO}/caom2pipe@${OPENCADC_BRANCH}#egg=caom2pipe
-RUN pip install git+https://github.com/${OPENCADC_REPO}/taosii2caom2@${OPENCADC_BRANCH}#egg=taosii2caom2
+RUN pip install git+https://github.com/${OPENCADC_REPO}/caom2pipe@${OPENCADC_MAIN_BRANCH}#egg=caom2pipe
+RUN pip install git+https://github.com/${OPENCADC_REPO}/taosii2caom2@${OPENCADC_MAIN_BRANCH}#egg=taosii2caom2
 
-FROM python:3.9-slim
+FROM python:${OPENCADC_PYTHON_VERSION}-slim
+ARG OPENCADC_PYTHON_VERSION
 WORKDIR /usr/src/app
 
-COPY --from=builder /usr/local/lib/python3.9/site-packages/ /usr/local/lib/python3.9/site-packages/
+COPY --from=builder /usr/local/lib/python${OPENCADC_PYTHON_VERSION}/site-packages/ /usr/local/lib/python${OPENCADC_PYTHON_VERSION}/site-packages/
 COPY --from=builder /usr/local/bin/* /usr/local/bin/
 COPY --from=builder /usr/local/.config/* /usr/local/.config/
 

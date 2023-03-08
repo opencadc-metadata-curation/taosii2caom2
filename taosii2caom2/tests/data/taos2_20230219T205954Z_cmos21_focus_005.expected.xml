@@ -21,8 +21,10 @@
   </caom2:proposal>
   <caom2:target>
     <caom2:name>TAOSFIELD_123</caom2:name>
-    <caom2:type>object</caom2:type>
   </caom2:target>
+  <caom2:telescope>
+    <caom2:name>TAOSII</caom2:name>
+  </caom2:telescope>
   <caom2:instrument>
     <caom2:name>TAOS_II</caom2:name>
     <caom2:keywords>
@@ -105,7 +107,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>UTC</caom2:ctype>
+                        <caom2:ctype>MJD</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -117,6 +119,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
+                    <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>
@@ -185,7 +188,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>UTC</caom2:ctype>
+                        <caom2:ctype>MJD</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -197,6 +200,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
+                    <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>
@@ -265,7 +269,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>UTC</caom2:ctype>
+                        <caom2:ctype>MJD</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -277,6 +281,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
+                    <caom2:timesys>UTC</caom2:timesys>
                     <caom2:mjdref>59994.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>

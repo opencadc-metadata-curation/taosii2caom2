@@ -129,7 +129,6 @@ Position:
 
 import h5py
 import logging
-import traceback
 
 from astropy import wcs
 from datetime import datetime
@@ -144,7 +143,7 @@ from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
 from caom2pipe.manage_composable import CadcException, StorageName, to_float, ValueRepairCache
 
 
-__all__ = ['APPLICATION', 'PointingMapping', 'SingleMapping', 'TAOSIIName', 'TimeseriesMapping']
+__all__ = ['APPLICATION', 'TAOSII2caom2Visitor', 'TAOSIIName']
 
 
 APPLICATION = 'taosii2caom2'
@@ -166,7 +165,7 @@ class TaosiiValueRepair(ValueRepairCache):
         self._logger = logging.getLogger(self.__class__.__name__)
 
 
-class SingleMapping(TelescopeMapping):
+class BasicMapping(TelescopeMapping):
 
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, headers=None, clients=clients, observable=observable)
@@ -217,9 +216,6 @@ class SingleMapping(TelescopeMapping):
         :param application:
         :return:
         """
-        super().accumulate_blueprint(bp, APPLICATION)
-        bp.configure_time_axis(3)
-        bp.configure_energy_axis(4)
         """
         need n WCS instances - one per site, so three per file, so, how
         to know when to create those, and how many to create?
@@ -245,6 +241,11 @@ class SingleMapping(TelescopeMapping):
                          up the CAOM2 key, which is then used to retrieve
                          the value from the HDF5 file]
         """
+
+        super().accumulate_blueprint(bp, APPLICATION)
+        bp.configure_time_axis(3)
+        bp.configure_energy_axis(4)
+
         self._prefix = '//header'
         if self._storage_name.is_lightcurve:
             self._prefix = '//obs/header'
@@ -262,147 +263,26 @@ class SingleMapping(TelescopeMapping):
         bp.set('Observation.proposal.id', ([f'{self._prefix}/run/run_seq'], None))
         bp.set('Observation.proposal.pi', ([f'{self._prefix}/run/observer'], None))
         bp.set('Observation.proposal.project', 'TAOS2')
-        bp.set(
-            'Observation.proposal.title',
-            'Transneptunian Automated Occultation Survey',
-        )
-        bp.set(
-            'Observation.proposal.keywords',
-            set(['Kuiper Belt', 'Trans Neptunian Object', 'Occultations']),
-        )
+        bp.set('Observation.proposal.title', 'Transneptunian Automated Occultation Survey')
+        bp.set('Observation.proposal.keywords', set(['Kuiper Belt', 'Trans Neptunian Object', 'Occultations']))
 
+        bp.set('Observation.telescope.name', 'TAOSII')
         # x, y, z = ac.get_location(31.041, -115.454, 2820)
         bp.set('Observation.telescope.geoLocationX', -2351818.5502637075)
         bp.set('Observation.telescope.geoLocationY', -4940894.8697881885)
         bp.set('Observation.telescope.geoLocationZ', 3271243.2086214763)
 
+        if 'master' in self._storage_name.file_name:
+            bp.set('Observation.algorithm.name', 'master')
+            bp.set('DerivedObservation.members', {})
+            bp.set('Plane.provenance.inputs', ([f'{self._prefix}/input_files'], None))
+            bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+
         bp.set('Artifact.productType', self._storage_name.get_product_type)
 
-        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
-        bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
-        bp.set('Chunk.time.axis.function.refCoord.pix', (['/header/wcs/crpix(2)'], None))
-        bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
-        bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
-        bp.set('Chunk.time.axis.axis.cunit', (['/header/wcs/cunit(2)'], None))
-        bp.set('Chunk.energy.specsys', 'TOPOCENT')
-        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
-        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
-        bp.set('Chunk.energy.bandpassName', 'CLEAR')
-        bp.set('Chunk.energy.resolvingPower', 1.575)
-        bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
-        bp.set('Chunk.energy.axis.function.refCoord.pix', (['/header/wcs/crpix(3)'], None))
-        bp.set('Chunk.energy.axis.function.refCoord.val', (['/header/wcs/crval(3)'], None))
-        bp.set('Chunk.energy.axis.axis.ctype', (['/header/wcs/ctype(3)'], None))
-        bp.set('Chunk.energy.axis.axis.cunit', (['/header/wcs/cunit(3)'], None))
-
-    def get_observation_intent(self, ext):
-        result = ObservationIntentType.CALIBRATION
-        if self._storage_name.get_product_type == ProductType.SCIENCE:
-            result = ObservationIntentType.SCIENCE
-        return result
-
-    def get_target_position_cval1(self, ext):
-        ra, dec_ignore = self._get_target_position()
-        return ra
-
-    def get_target_position_cval2(self, ext):
-        ra_ignore, dec = self._get_target_position()
-        return dec
-
-    def _get_target_position(self):
-        prefix = self._prefix.replace('//', '')
-        obj_ra = self._lookup(f'{prefix}/object/obj_ra')
-        obj_dec = self._lookup(f'{prefix}/object/obj_dec')
-        if obj_ra is None or obj_dec is None:
-            ra = None
-            dec = None
-        else:
-            for o in [obj_dec, obj_ra]:
-                if hasattr(o, 'decode'):
-                    o = o.decode('utf-8')
-            ra, dec = build_ra_dec_as_deg(obj_ra, obj_dec)
-        return ra, dec
-
-    def get_time_axis_range_end(self, ext):
-        prefix = self._prefix.replace('//', '')
-        return self._lookup(f'{prefix}/exposure/num_epochs') - 1
-
-    def _lookup(self, things):
-        def hd5f_visit(name, object):
-            if (
-                isinstance(object, h5py.Dataset)
-                and object.dtype.names is not None
-            ):
-                # 'name' starts without a directory separator
-                if things.startswith(name):
-                    for d_name in object.dtype.names:
-                        temp = f'{name}/{d_name}'
-                        if temp == things:
-                            return object[d_name]
-
-        result = self._h5_file.visititems(hd5f_visit)
-        if result is None:
-            self._logger.warning(
-                f'Could not find {things} in {self._storage_name.file_name}'
-            )
-        else:
-            self._logger.debug(f'Found {result} for {things}')
-        return result
-
-    def _update_artifact(self, artifact):
-        self._logger.debug('Begin _update_artifact')
-        for part in artifact.parts.values():
-            for chunk in part.chunks:
-                if (
-                    chunk.time is not None
-                    and chunk.time.axis is not None
-                    and chunk.time.axis.function is not None
-                ):
-                    # time is range, not function, and at this time, the
-                    # blueprint will always set the function
-                    # chunk.time.axis.function = None
-                    # chunk.time.trefpos = None
-                    chunk.time_axis = None
-                if (
-                    chunk.energy is not None
-                    and chunk.energy.axis is not None
-                    and chunk.energy.axis.function is not None
-                ):
-                    # energy is range, not function, and at this time, the
-                    # blueprint will always set the function
-                    # chunk.energy.axis.function = None
-                    chunk.energy_axis = None
-                if (
-                    chunk.position is not None
-                    and chunk.position_axis_1 is not None
-                ):
-                    chunk.position_axis_1 = None
-                    chunk.position_axis_2 = None
-                if self._storage_name.is_lightcurve and chunk.position is not None:
-                    chunk.position = None
-        self._logger.debug('End _update_artifact')
-
-
-class DomeflatMapping(SingleMapping):
-
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, h5file, clients=clients, observable=observable)
-        self._h5_file = h5file
-        self._prefix = None
-
-    def accumulate_blueprint(self, bp, application=None):
-        """
-        :param bp:
-        :param application:
-        :return:
-        """
-        super().accumulate_blueprint(bp, APPLICATION)
         bp.set('Chunk.time.axis.axis.ctype', 'TIME')
         bp.set('Chunk.time.axis.axis.cunit', 'd')
-        bp.set('Chunk.time.axis.range.start.pix', 0.5)
-        bp.set('Chunk.time.axis.range.end.pix', 1.5)
-        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
-        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+        bp.set('Chunk.time.exposure', ([f'{self._prefix}/exposure/exposure'], None))
         bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
         # JJK 30-01-23
         # timesys is UTC.
@@ -432,10 +312,12 @@ class DomeflatMapping(SingleMapping):
         bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
         # units as output by astropy.wcs.WCS
         bp.set('Chunk.energy.axis.axis.cunit', 'm')
-        bp.set('Chunk.energy.axis.range.start.pix', 0.5)
-        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
-        bp.set('Chunk.energy.axis.range.end.pix', 1.5)
-        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
+
+    def get_observation_intent(self, ext):
+        result = ObservationIntentType.CALIBRATION
+        if self._storage_name.get_product_type == ProductType.SCIENCE:
+            result = ObservationIntentType.SCIENCE
+        return result
 
     def _update_artifact(self, artifact):
         self._logger.debug('Begin _update_artifact')
@@ -446,9 +328,10 @@ class DomeflatMapping(SingleMapping):
                     and chunk.time.axis is not None
                     and chunk.time.axis.function is not None
                 ):
-                    # time is range, not function, and at this time, the
-                    # blueprint will always set the function
-                    chunk.time.axis.function = None
+                    if chunk.time.axis.range is not None:
+                        # time is range, not function, and at this time, the
+                        # blueprint will always set the function
+                        chunk.time.axis.function = None
                     # chunk.time.trefpos = None
                     chunk.time_axis = None
                 if (
@@ -456,9 +339,10 @@ class DomeflatMapping(SingleMapping):
                     and chunk.energy.axis is not None
                     and chunk.energy.axis.function is not None
                 ):
-                    # energy is range, not function, and at this time, the
-                    # blueprint will always set the function
-                    chunk.energy.axis.function = None
+                    if chunk.energy.axis.range is not None:
+                        # energy is range, not function, and at this time, the
+                        # blueprint will always set the function
+                        chunk.energy.axis.function = None
                     chunk.energy_axis = None
                 if (
                     chunk.position is not None
@@ -471,6 +355,50 @@ class DomeflatMapping(SingleMapping):
         self._logger.debug('End _update_artifact')
 
 
+class DomeflatMapping(BasicMapping):
+
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, h5file, clients, observable)
+
+    def accumulate_blueprint(self, bp, application=None):
+        super().accumulate_blueprint(bp, APPLICATION)
+        bp.set('Chunk.time.axis.range.start.pix', 0.5)
+        bp.set('Chunk.time.axis.range.end.pix', 1.5)
+        bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
+        bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/exposure/mjdend'], None))
+
+        bp.set('Chunk.energy.axis.range.start.pix', 0.5)
+        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
+        bp.set('Chunk.energy.axis.range.end.pix', 1.5)
+        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
+
+
+class SingleMapping(BasicMapping):
+
+    def __init__(self, storage_name, h5file, clients, observable):
+        super().__init__(storage_name, h5file, clients=clients, observable=observable)
+
+    def accumulate_blueprint(self, bp, application=None):
+        super().accumulate_blueprint(bp, APPLICATION)
+
+        bp.set('Observation.telescope.geoLocationX', ([f'{self._prefix}/avg_location/obsgeo(0)'], None))
+        bp.set('Observation.telescope.geoLocationY', ([f'{self._prefix}/avg_location/obsgeo(1)'], None))
+        bp.set('Observation.telescope.geoLocationZ', ([f'{self._prefix}/avg_location/obsgeo(2)'], None))
+        bp.set('Observation.target.name', ([f'{self._prefix}/pointing/field_id'], None))
+
+        bp.set('Artifact.productType', self._storage_name.get_product_type)
+
+        bp.set('Chunk.time.axis.function.refCoord.pix', (['/header/wcs/crpix(2)'], None))
+        bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
+        bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
+        bp.set('Chunk.time.axis.axis.cunit', (['/header/wcs/cunit(2)'], None))
+
+        bp.set('Chunk.energy.axis.function.refCoord.pix', (['/header/wcs/crpix(3)'], None))
+        bp.set('Chunk.energy.axis.function.refCoord.val', (['/header/wcs/crval(3)'], None))
+        bp.set('Chunk.energy.axis.axis.ctype', (['/header/wcs/ctype(3)'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', (['/header/wcs/cunit(3)'], None))
+
+
 class PointingMapping(SingleMapping):
 
     def __init__(self, storage_name, h5file, clients, observable):
@@ -481,70 +409,25 @@ class PointingMapping(SingleMapping):
         bp.configure_position_axes((1, 2))
         bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
 
-        bp.set('Observation.target.name', ([f'{self._prefix}/pointing/field_id'], None))
-        bp.set('Observation.target.type', 'object')
-        bp.set('Observation.target.targetID', ([f'{self._prefix}/object/obj_type'], None))
-        bp.set(
-            'Observation.target_position.point.cval1',
-            'get_target_position_cval1()',
-        )
-        bp.set(
-            'Observation.target_position.point.cval2',
-            'get_target_position_cval2()',
-        )
-        bp.set('Observation.target_position.coordsys', 'FK5')
-        bp.set('Observation.target_position.equinox', ([f'{self._prefix}/object/equinox'], None))
-
         bp.set('Chunk.position.axis.function.dimension.naxis1', 1920)
         bp.set('Chunk.position.axis.function.dimension.naxis2', 4608)
-        bp.set(
-            'Chunk.position.axis.function.refCoord.coord1.pix',
-            (['/header/wcs/crpix(0)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.refCoord.coord1.val',
-            (['/header/wcs/crval(0)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.refCoord.coord2.pix',
-            (['/header/wcs/crpix(1)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.refCoord.coord2.val',
-            (['/header/wcs/crval(1)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.axis1.ctype', (['/header/wcs/ctype(0)'], None)
-        )
-        bp.set(
-            'Chunk.position.axis.axis1.cunit', (['/header/wcs/cunit(0)'], None)
-        )
-        bp.set(
-            'Chunk.position.axis.axis2.ctype', (['/header/wcs/ctype(1)'], None)
-        )
-        bp.set(
-            'Chunk.position.axis.axis2.cunit', (['/header/wcs/cunit(1)'], None)
-        )
-        bp.set(
-            'Chunk.position.axis.function.cd11',
-            (['/header/wcs/cd(0:0)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.cd12',
-            (['/header/wcs/cd(0:1)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.cd21',
-            (['/header/wcs/cd(1:0)'], None),
-        )
-        bp.set(
-            'Chunk.position.axis.function.cd22',
-            (['/header/wcs/cd(1:1)'], None),
-        )
+        bp.set('Chunk.position.axis.function.refCoord.coord1.pix', (['/header/wcs/crpix(0)'], None))
+        bp.set('Chunk.position.axis.function.refCoord.coord1.val', (['/header/wcs/crval(0)'], None))
+        bp.set('Chunk.position.axis.function.refCoord.coord2.pix', (['/header/wcs/crpix(1)'], None))
+        bp.set('Chunk.position.axis.function.refCoord.coord2.val', (['/header/wcs/crval(1)'], None))
+        bp.set('Chunk.position.axis.axis1.ctype', (['/header/wcs/ctype(0)'], None))
+        bp.set('Chunk.position.axis.axis1.cunit', (['/header/wcs/cunit(0)'], None))
+        bp.set('Chunk.position.axis.axis2.ctype', (['/header/wcs/ctype(1)'], None))
+        bp.set('Chunk.position.axis.axis2.cunit', (['/header/wcs/cunit(1)'], None))
+        bp.set('Chunk.position.axis.function.cd11', (['/header/wcs/cd(0:0)'], None))
+        bp.set('Chunk.position.axis.function.cd12', (['/header/wcs/cd(0:1)'], None))
+        bp.set('Chunk.position.axis.function.cd21', (['/header/wcs/cd(1:0)'], None))
+        bp.set('Chunk.position.axis.function.cd22', (['/header/wcs/cd(1:1)'], None))
         bp.set('Chunk.position.equinox', ([f'{self._prefix}/object/equinox'], None))
         # JJK 30-01-23
         # coordsys: null should likely be coordsys: ICRS
         bp.set('Chunk.position.coordsys', 'ICRS')
+        # logging.error(bp)
 
 
 class TimeseriesMapping(PointingMapping):
@@ -557,24 +440,56 @@ class TimeseriesMapping(PointingMapping):
         bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
 
-    def get_time_axis_range_start(self, ext):
-        """
-        JJK/ML 27-01-23
+        bp.set('Observation.target.targetID', ([f'{self._prefix}/object/obj_id'], None))
+        bp.set('Observation.target.type', ([f'{self._prefix}/obj/obj_type'], None))
+        bp.set('Observation.target_position.point.cval1', 'get_target_position_cval1()')
+        bp.set('Observation.target_position.point.cval2', 'get_target_position_cval2()')
+        bp.set('Observation.target_position.coordsys', 'FK5')
+        bp.set('Observation.target_position.equinox', ([f'{self._prefix}/object/equinox'], None))
 
-        For each part the MDJ of pixel 0.0 is the value of
-        /header/exposure/mjdstart + /images/site1/header/timing/exposure_offset
-        (where exposure_offset needs to be converted from the units s to units d)
-        """
+    def _get_target_position(self):
         prefix = self._prefix.replace('//', '')
-        mjdstart = self._lookup(f'{prefix}/exposure/mjdstart')
-        offset = self._lookup(f'images/site{ext + 1}/header/timing/exposure_offset')
-        result = None
-        if mjdstart is not None:
-            if offset is None:
-                result = mjdstart
-            else:
-                result = add_as_s(offset, mjdstart)
+        obj_ra = self._lookup(f'{prefix}/object/obj_ra')
+        obj_dec = self._lookup(f'{prefix}/object/obj_dec')
+        if obj_ra is None or obj_dec is None:
+            ra = None
+            dec = None
+        else:
+            for o in [obj_dec, obj_ra]:
+                if hasattr(o, 'decode'):
+                    o = o.decode('utf-8')
+            ra, dec = build_ra_dec_as_deg(obj_ra, obj_dec)
+        return ra, dec
+
+    def _lookup(self, things):
+        def hd5f_visit(name, object):
+            if (
+                isinstance(object, h5py.Dataset)
+                and object.dtype.names is not None
+            ):
+                # 'name' starts without a directory separator
+                if things.startswith(name):
+                    for d_name in object.dtype.names:
+                        temp = f'{name}/{d_name}'
+                        if temp == things:
+                            return object[d_name]
+
+        result = self._h5_file.visititems(hd5f_visit)
+        if result is None:
+            self._logger.warning(
+                f'Could not find {things} in {self._storage_name.file_name}'
+            )
+        else:
+            self._logger.debug(f'Found {result} for {things}')
         return result
+
+    def get_target_position_cval1(self, ext):
+        ra, dec_ignore = self._get_target_position()
+        return ra
+
+    def get_target_position_cval2(self, ext):
+        ra_ignore, dec = self._get_target_position()
+        return dec
 
 
 class TAOSIIName(StorageName):
@@ -632,6 +547,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             result = DomeflatMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         else:
             result = SingleMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+        logging.debug(f'Using mapping type {type(result)}.')
         return result
 
     def _get_parser(self, headers, blueprint, uri):

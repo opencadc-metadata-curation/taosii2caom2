@@ -117,17 +117,21 @@ def test_visitor(test_config, test_name):
         logging.error(traceback.format_exc())
         assert False, f'{e}'
 
-    expected = read_obs_from_file(expected_fqn)
-    _set_release_date_values(observation)
-    compare_result = get_differences(expected, observation)
-    if compare_result is not None:
-        if observation is None:
-            assert False, f'observation should not be None {test_name}'
-        else:
-            write_obs_to_file(observation, actual_fqn)
-            compare_text = '\n'.join([r for r in compare_result])
-            msg = f'Differences found in observation {expected.observation_id}\n{compare_text}'
-            raise AssertionError(msg)
+    if exists(expected_fqn):
+        expected = read_obs_from_file(expected_fqn)
+        _set_release_date_values(observation)
+        compare_result = get_differences(expected, observation)
+        if compare_result is not None:
+            if observation is None:
+                assert False, f'observation should not be None {test_name}'
+            else:
+                write_obs_to_file(observation, actual_fqn)
+                compare_text = '\n'.join([r for r in compare_result])
+                msg = f'Differences found in observation {expected.observation_id}\n{compare_text}'
+                raise AssertionError(msg)
+    else:
+        write_obs_to_file(observation, actual_fqn)
+        assert False, 'no expected observation'
     # assert False
 
 
