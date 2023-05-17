@@ -110,7 +110,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -122,7 +122,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:timesys>TT</caom2:timesys>
                     <caom2:mjdref>60004.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>
@@ -191,7 +191,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -203,7 +203,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:timesys>TT</caom2:timesys>
                     <caom2:mjdref>60004.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>
@@ -272,7 +272,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -284,7 +284,7 @@
                         </caom2:refCoord>
                       </caom2:function>
                     </caom2:axis>
-                    <caom2:timesys>UTC</caom2:timesys>
+                    <caom2:timesys>TT</caom2:timesys>
                     <caom2:mjdref>60004.0</caom2:mjdref>
                     <caom2:exposure>1.0</caom2:exposure>
                   </caom2:time>

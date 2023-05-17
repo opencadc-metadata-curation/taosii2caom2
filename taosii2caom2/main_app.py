@@ -143,10 +143,7 @@ from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
 from caom2pipe.manage_composable import CadcException, StorageName, to_float, ValueRepairCache
 
 
-__all__ = ['APPLICATION', 'TAOSII2caom2Visitor', 'TAOSIIName']
-
-
-APPLICATION = 'taosii2caom2'
+__all__ = ['TAOSII2caom2Visitor', 'TAOSIIName']
 
 
 class TaosiiValueRepair(ValueRepairCache):
@@ -172,7 +169,7 @@ class BasicMapping(TelescopeMapping):
         self._h5_file = h5file
         self._prefix = None
 
-    def accumulate_blueprint(self, bp, application=None):
+    def accumulate_blueprint(self, bp):
         """
         JJK - 17-03-22
 
@@ -213,7 +210,6 @@ class BasicMapping(TelescopeMapping):
         }
 
         :param bp:
-        :param application:
         :return:
         """
         """
@@ -242,7 +238,7 @@ class BasicMapping(TelescopeMapping):
                          the value from the HDF5 file]
         """
 
-        super().accumulate_blueprint(bp, APPLICATION)
+        super().accumulate_blueprint(bp)
         bp.configure_time_axis(3)
         bp.configure_energy_axis(4)
 
@@ -258,7 +254,7 @@ class BasicMapping(TelescopeMapping):
         bp.set('Plane.metaRelease', utc_now)
 
         bp.set('Observation.type', ([f'{self._prefix}/run/obstype'], 'IMAGE'))
-        bp.set('Observation.instrument.name', ([f'{self._prefix}/run/origin'], None))
+        bp.set('Observation.instrument.name', 'get_instrument_name()')
         bp.set('Observation.instrument.keywords', ([f'{self._prefix}/run/exptype'], None))
         bp.set('Observation.proposal.id', ([f'{self._prefix}/run/run_seq'], None))
         bp.set('Observation.proposal.pi', ([f'{self._prefix}/run/observer'], None))
@@ -266,7 +262,7 @@ class BasicMapping(TelescopeMapping):
         bp.set('Observation.proposal.title', 'Transneptunian Automated Occultation Survey')
         bp.set('Observation.proposal.keywords', set(['Kuiper Belt', 'Trans Neptunian Object', 'Occultations']))
 
-        bp.set('Observation.telescope.name', 'TAOSII')
+        bp.set('Observation.telescope.name', self.get_telescope_name(0))
         # x, y, z = ac.get_location(31.041, -115.454, 2820)
         bp.set('Observation.telescope.geoLocationX', -2351818.5502637075)
         bp.set('Observation.telescope.geoLocationY', -4940894.8697881885)
@@ -286,7 +282,7 @@ class BasicMapping(TelescopeMapping):
         bp.set('Chunk.time.mjdref', ([f'{self._prefix}/coord_params/mjdref'], None))
         # JJK 30-01-23
         # timesys is UTC.
-        bp.set('Chunk.time.timesys', 'UTC')
+        # bp.set('Chunk.time.timesys', 'UTC')
 
         # SGw - 23-07-22
         # Detector energy information from Figure 4 here:
@@ -313,10 +309,46 @@ class BasicMapping(TelescopeMapping):
         # units as output by astropy.wcs.WCS
         bp.set('Chunk.energy.axis.axis.cunit', 'm')
 
+    def get_instrument_name(self, ext):
+        if self._storage_name.is_fsc:
+            result = 'TAOSZWOCAM'
+        else:
+            result = self._lookup(f'{self._prefix}/run/origin')
+        return result
+
     def get_observation_intent(self, ext):
         result = ObservationIntentType.CALIBRATION
         if self._storage_name.get_product_type == ProductType.SCIENCE:
             result = ObservationIntentType.SCIENCE
+        return result
+
+    def get_telescope_name(self, ext):
+        result = 'TAOSII'
+        if self._storage_name.is_fsc:
+            result = 'TAOSIIFSC'
+        return result
+
+    def _lookup(self, things):
+        things_replaced = things.replace('//', '', 1)
+        def hd5f_visit(name, object):
+            if (
+                isinstance(object, h5py.Dataset)
+                and object.dtype.names is not None
+            ):
+                # 'name' starts without a directory separator
+                if things_replaced.startswith(name):
+                    for d_name in object.dtype.names:
+                        temp = f'{name}/{d_name}'
+                        if temp == things_replaced:
+                            return object[d_name]
+
+        result = self._h5_file.visititems(hd5f_visit)
+        if result is None:
+            self._logger.warning(f'Could not find {things} in {self._storage_name.file_name}')
+        else:
+            self._logger.debug(f'Found {result} for {things}')
+            if hasattr(result, 'decode'):
+                result = result.decode('utf-8')
         return result
 
     def _update_artifact(self, artifact):
@@ -360,8 +392,8 @@ class DomeflatMapping(BasicMapping):
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, h5file, clients, observable)
 
-    def accumulate_blueprint(self, bp, application=None):
-        super().accumulate_blueprint(bp, APPLICATION)
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
         bp.set('Chunk.time.axis.range.start.pix', 0.5)
         bp.set('Chunk.time.axis.range.end.pix', 1.5)
         bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/exposure/mjdstart'], None))
@@ -378,8 +410,8 @@ class SingleMapping(BasicMapping):
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, h5file, clients=clients, observable=observable)
 
-    def accumulate_blueprint(self, bp, application=None):
-        super().accumulate_blueprint(bp, APPLICATION)
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
 
         bp.set('Observation.telescope.geoLocationX', ([f'{self._prefix}/avg_location/obsgeo(0)'], None))
         bp.set('Observation.telescope.geoLocationY', ([f'{self._prefix}/avg_location/obsgeo(1)'], None))
@@ -392,6 +424,7 @@ class SingleMapping(BasicMapping):
         bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
         bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
         bp.set('Chunk.time.axis.axis.cunit', (['/header/wcs/cunit(2)'], None))
+        bp.set('Chunk.time.timesys', (['/header/wcs/cname(2)'], None))
 
         bp.set('Chunk.energy.axis.function.refCoord.pix', (['/header/wcs/crpix(3)'], None))
         bp.set('Chunk.energy.axis.function.refCoord.val', (['/header/wcs/crval(3)'], None))
@@ -404,7 +437,7 @@ class PointingMapping(SingleMapping):
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, h5file, clients, observable)
 
-    def accumulate_blueprint(self, bp, application=None):
+    def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.configure_position_axes((1, 2))
         bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
@@ -426,7 +459,7 @@ class PointingMapping(SingleMapping):
         bp.set('Chunk.position.equinox', ([f'{self._prefix}/object/equinox'], None))
         # JJK 30-01-23
         # coordsys: null should likely be coordsys: ICRS
-        bp.set('Chunk.position.coordsys', 'ICRS')
+        bp.set('Chunk.position.coordsys', ([f'{self._prefix}/coord_params/radecsys'], None))
         # logging.error(bp)
 
 
@@ -435,7 +468,7 @@ class TimeseriesMapping(PointingMapping):
     def __init__(self, storage_name, h5file, clients, observable):
         super().__init__(storage_name, h5file, clients, observable)
 
-    def accumulate_blueprint(self, bp, application=None):
+    def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
@@ -448,40 +481,14 @@ class TimeseriesMapping(PointingMapping):
         bp.set('Observation.target_position.equinox', ([f'{self._prefix}/object/equinox'], None))
 
     def _get_target_position(self):
-        prefix = self._prefix.replace('//', '')
-        obj_ra = self._lookup(f'{prefix}/object/obj_ra')
-        obj_dec = self._lookup(f'{prefix}/object/obj_dec')
+        obj_ra = self._lookup(f'{self._prefix}/object/obj_ra')
+        obj_dec = self._lookup(f'{self._prefix}/object/obj_dec')
         if obj_ra is None or obj_dec is None:
             ra = None
             dec = None
         else:
-            for o in [obj_dec, obj_ra]:
-                if hasattr(o, 'decode'):
-                    o = o.decode('utf-8')
             ra, dec = build_ra_dec_as_deg(obj_ra, obj_dec)
         return ra, dec
-
-    def _lookup(self, things):
-        def hd5f_visit(name, object):
-            if (
-                isinstance(object, h5py.Dataset)
-                and object.dtype.names is not None
-            ):
-                # 'name' starts without a directory separator
-                if things.startswith(name):
-                    for d_name in object.dtype.names:
-                        temp = f'{name}/{d_name}'
-                        if temp == things:
-                            return object[d_name]
-
-        result = self._h5_file.visititems(hd5f_visit)
-        if result is None:
-            self._logger.warning(
-                f'Could not find {things} in {self._storage_name.file_name}'
-            )
-        else:
-            self._logger.debug(f'Found {result} for {things}')
-        return result
 
     def get_target_position_cval1(self, ext):
         ra, dec_ignore = self._get_target_position()
@@ -506,10 +513,14 @@ class TAOSIIName(StorageName):
 
     @property
     def get_product_type(self):
-        if '_star' in self._file_name:
+        if '_star' in self._file_name or '_fsc' in self._file_name:
             return ProductType.SCIENCE
         else:
             return ProductType.CALIBRATION
+
+    @property
+    def is_fsc(self):
+        return '_fsc' in self._file_name
 
     @property
     def is_lightcurve(self):
@@ -537,7 +548,11 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
     def _get_mapping(self, headers):
         if '_star' in self._storage_name.file_name:
             result = TimeseriesMapping(self._storage_name, self._h5_file, self._clients, self._observable)
-        elif '_focus' in self._storage_name.file_name or '_point' in self._storage_name.file_name:
+        elif (
+            '_focus' in self._storage_name.file_name
+            or '_point' in self._storage_name.file_name
+            or self._storage_name.is_fsc
+        ):
             result = PointingMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         elif (
             '_domeflat' in self._storage_name.file_name
@@ -547,7 +562,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             result = DomeflatMapping(self._storage_name, self._h5_file, self._clients, self._observable)
         else:
             result = SingleMapping(self._storage_name, self._h5_file, self._clients, self._observable)
-        logging.debug(f'Using mapping type {type(result)}.')
+        self._logger.error(f'Created mapping {result.__class__.__name__}.')
         return result
 
     def _get_parser(self, headers, blueprint, uri):

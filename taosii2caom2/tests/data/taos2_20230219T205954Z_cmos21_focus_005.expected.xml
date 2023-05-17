@@ -107,7 +107,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -188,7 +188,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
@@ -269,7 +269,7 @@
                   <caom2:time>
                     <caom2:axis>
                       <caom2:axis>
-                        <caom2:ctype>MJD</caom2:ctype>
+                        <caom2:ctype>TIME</caom2:ctype>
                         <caom2:cunit>d</caom2:cunit>
                       </caom2:axis>
                       <caom2:function>
