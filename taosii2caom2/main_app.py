@@ -164,8 +164,8 @@ class TaosiiValueRepair(ValueRepairCache):
 
 class BasicMapping(TelescopeMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, headers=None, clients=clients, observable=observable)
+    def __init__(self, storage_name, h5file, clients, observable, observation):
+        super().__init__(storage_name, headers=None, clients=clients, observable=observable, observation=observation)
         self._h5_file = h5file
         self._prefix = None
 
@@ -389,8 +389,8 @@ class BasicMapping(TelescopeMapping):
 
 class DomeflatMapping(BasicMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, h5file, clients, observable)
+    def __init__(self, storage_name, h5file, clients, observable, observation):
+        super().__init__(storage_name, h5file, clients, observable, observation)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -407,8 +407,8 @@ class DomeflatMapping(BasicMapping):
 
 class SingleMapping(BasicMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, h5file, clients=clients, observable=observable)
+    def __init__(self, storage_name, h5file, clients, observable, observation):
+        super().__init__(storage_name, h5file, clients=clients, observable=observable, observation=observation)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -434,8 +434,8 @@ class SingleMapping(BasicMapping):
 
 class PointingMapping(SingleMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, h5file, clients, observable)
+    def __init__(self, storage_name, h5file, clients, observable, observation):
+        super().__init__(storage_name, h5file, clients, observable, observation)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -465,8 +465,8 @@ class PointingMapping(SingleMapping):
 
 class TimeseriesMapping(PointingMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable):
-        super().__init__(storage_name, h5file, clients, observable)
+    def __init__(self, storage_name, h5file, clients, observable, observation):
+        super().__init__(storage_name, h5file, clients, observable, observation)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -547,22 +547,30 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
 
     def _get_mapping(self, headers):
         if '_star' in self._storage_name.file_name:
-            result = TimeseriesMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+            result = TimeseriesMapping(
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+            )
         elif (
             '_focus' in self._storage_name.file_name
             or '_point' in self._storage_name.file_name
             or self._storage_name.is_fsc
         ):
-            result = PointingMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+            result = PointingMapping(
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+            )
         elif (
             '_domeflat' in self._storage_name.file_name
             or '_dark' in self._storage_name.file_name
             or '_bias' in self._storage_name.file_name
         ):
-            result = DomeflatMapping(self._storage_name, self._h5_file, self._clients, self._observable)
+            result = DomeflatMapping(
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+            )
         else:
-            result = SingleMapping(self._storage_name, self._h5_file, self._clients, self._observable)
-        self._logger.error(f'Created mapping {result.__class__.__name__}.')
+            result = SingleMapping(
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+            )
+        self._logger.debug(f'Created mapping {result.__class__.__name__}.')
         return result
 
     def _get_parser(self, headers, blueprint, uri):
