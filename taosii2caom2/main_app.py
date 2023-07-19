@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
@@ -420,11 +419,12 @@ class SingleMapping(BasicMapping):
 
         bp.set('Artifact.productType', self._storage_name.get_product_type)
 
+        bp.set('Chunk.time.axis.function.delta', (['/header/wcs/cd(2:2)'], None))
         bp.set('Chunk.time.axis.function.refCoord.pix', (['/header/wcs/crpix(2)'], None))
         bp.set('Chunk.time.axis.function.refCoord.val', (['/header/wcs/crval(2)'], None))
-        bp.set('Chunk.time.axis.axis.ctype', (['/header/wcs/ctype(2)'], None))
+        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
         bp.set('Chunk.time.axis.axis.cunit', (['/header/wcs/cunit(2)'], None))
-        bp.set('Chunk.time.timesys', (['/header/wcs/cname(2)'], None))
+        bp.set('Chunk.time.timesys', (['/header/wcs/ctype(2)'], None))
 
         bp.set('Chunk.energy.axis.function.refCoord.pix', (['/header/wcs/crpix(3)'], None))
         bp.set('Chunk.energy.axis.function.refCoord.val', (['/header/wcs/crval(3)'], None))
