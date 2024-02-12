@@ -163,8 +163,10 @@ class TaosiiValueRepair(ValueRepairCache):
 
 class BasicMapping(TelescopeMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation):
-        super().__init__(storage_name, headers=None, clients=clients, observable=observable, observation=observation)
+    def __init__(self, storage_name, h5file, clients, observable, observation, config):
+        super().__init__(
+            storage_name, headers=None, clients=clients, observable=observable, observation=observation, config=config
+        )
         self._h5_file = h5file
         self._prefix = None
 
@@ -214,25 +216,25 @@ class BasicMapping(TelescopeMapping):
         """
         need n WCS instances - one per site, so three per file, so, how
         to know when to create those, and how many to create?
-        - I think that knowing there are n (three) per file is just a thing 
+        - I think that knowing there are n (three) per file is just a thing
         that is known ahead of time, and that the path to the 'n' bits is
         part of the construction of HCF5Parser
         - then, the separate WCSParser bits are constructed as part of that
         handling?
-        
+
         For FITS:
         e.g. Chunk.position.axis.axis1.ctype = CTYPE1
 
         For HDF5:
         e.g. Chunk.position.axis.axis1.ctype = /header/wcs/ctype[0]
-        
+
         BUT
         - need an astropy.wcs.WCS construction for correctness/consistency
 
         - for the FITS file, the WCS construction is handled by astropy
         - for the HDF5 file, the WCS construction needs to be handled by
           blueprint (?) code, so something like:
-          w.wcs.ctype = [value from HDF5 file, which is found by looking 
+          w.wcs.ctype = [value from HDF5 file, which is found by looking
                          up the CAOM2 key, which is then used to retrieve
                          the value from the HDF5 file]
         """
@@ -388,8 +390,8 @@ class BasicMapping(TelescopeMapping):
 
 class DomeflatMapping(BasicMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation):
-        super().__init__(storage_name, h5file, clients, observable, observation)
+    def __init__(self, storage_name, h5file, clients, observable, observation, config):
+        super().__init__(storage_name, h5file, clients, observable, observation, config)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -406,8 +408,10 @@ class DomeflatMapping(BasicMapping):
 
 class SingleMapping(BasicMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation):
-        super().__init__(storage_name, h5file, clients=clients, observable=observable, observation=observation)
+    def __init__(self, storage_name, h5file, clients, observable, observation, config):
+        super().__init__(
+            storage_name, h5file, clients=clients, observable=observable, observation=observation, config=config
+        )
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -434,8 +438,8 @@ class SingleMapping(BasicMapping):
 
 class PointingMapping(SingleMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation):
-        super().__init__(storage_name, h5file, clients, observable, observation)
+    def __init__(self, storage_name, h5file, clients, observable, observation, config):
+        super().__init__(storage_name, h5file, clients, observable, observation, config)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -465,8 +469,8 @@ class PointingMapping(SingleMapping):
 
 class TimeseriesMapping(PointingMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation):
-        super().__init__(storage_name, h5file, clients, observable, observation)
+    def __init__(self, storage_name, h5file, clients, observable, observation, config):
+        super().__init__(storage_name, h5file, clients, observable, observation, config)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -545,10 +549,10 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
     def _get_blueprint(self, instantiated_class):
         return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
 
-    def _get_mapping(self, headers):
+    def _get_mapping(self, headers, _):
         if '_star' in self._storage_name.file_name:
             result = TimeseriesMapping(
-                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation, self._config
             )
         elif (
             '_focus' in self._storage_name.file_name
@@ -556,7 +560,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             or self._storage_name.is_fsc
         ):
             result = PointingMapping(
-                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation, self._config
             )
         elif (
             '_domeflat' in self._storage_name.file_name
@@ -564,11 +568,11 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             or '_bias' in self._storage_name.file_name
         ):
             result = DomeflatMapping(
-                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation, self._config
             )
         else:
             result = SingleMapping(
-                self._storage_name, self._h5_file, self._clients, self._observable, self._observation
+                self._storage_name, self._h5_file, self._clients, self._observable, self._observation, self._config
             )
         self._logger.debug(f'Created mapping {result.__class__.__name__}.')
         return result
