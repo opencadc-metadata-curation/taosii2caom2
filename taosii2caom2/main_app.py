@@ -170,7 +170,7 @@ class BasicMapping(TelescopeMapping):
             storage_name, headers=None, clients=clients, observable=observable, observation=observation, config=config
         )
         self._h5_file = h5file
-        self._prefix = prefix
+        self._prefix = f'//{prefix}'
         self._time_axis = time_axis
         self._energy_axis = energy_axis
 
@@ -246,9 +246,6 @@ class BasicMapping(TelescopeMapping):
         bp.configure_time_axis(self._time_axis)
         bp.configure_energy_axis(self._energy_axis)
 
-        self._prefix = '//IMAGE'
-        if self._storage_name.is_lightcurve:
-            self._prefix = '//LIGHTCURVE'
         utc_now = datetime.utcnow()
         bp.set('Observation.intent', self.get_observation_intent(0))
         bp.set('Plane.dataProductType', DataProductType.IMAGE)

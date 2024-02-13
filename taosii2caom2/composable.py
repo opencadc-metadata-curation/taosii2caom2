@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
@@ -68,30 +67,39 @@
 #
 
 """
-Implements the default entry point functions for the workflow 
-application.
+Implements the default entry point functions for the workflow application.
 
 'run' executes based on either provided lists of work, or files on disk.
-'run_by_state' executes incrementally, usually based on time-boxed 
-intervals.
+'run_incremental' executes incrementally, usually based on time-boxed intervals.
 """
 
 import logging
 import sys
 import traceback
 
+from caom2pipe.execute_composable import can_use_single_visit
+from caom2pipe.manage_composable import CadcException, Config
 from caom2pipe.name_builder_composable import GuessingBuilder
+from caom2pipe.reader_composable import Hdf5FileMetadataReader
 from caom2pipe.run_composable import run_by_todo, run_by_state
 from taosii2caom2 import main_app, file2caom2_augmentation
 
 
-META_VISITORS = []
-DATA_VISITORS = [file2caom2_augmentation]
+META_VISITORS = [file2caom2_augmentation]
+DATA_VISITORS = []
 
 
 def _common_init():
+    config = Config()
+    config.get_executors()
     name_builder = GuessingBuilder(main_app.TAOSIIName)
-    return name_builder
+    if can_use_single_visit(config.task_types):
+        reader = Hdf5FileMetadataReader()
+    else:
+        raise CadcException(
+            f'taosii2caom2 does not work with these task type: {config.task_types}. Files must be local.'
+        )
+    return config, name_builder, reader
 
 
 def _run():
@@ -101,11 +109,13 @@ def _run():
     :return 0 if successful, -1 if there's any sort of failure. Return status
         is used by airflow for task instance management and reporting.
     """
-    name_builder = _common_init()
+    config, name_builder, reader = _common_init()
     return run_by_todo(
+        config=config,
         name_builder=name_builder,
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
+        metadata_reader=reader,
     )
 
 
@@ -125,11 +135,13 @@ def _run_incremental():
     """Uses a state file with a timestamp to control which entries will be
     processed.
     """
-    name_builder = _common_init()
+    config, name_builder, reader = _common_init()
     return run_by_state(
+        config=config,
         name_builder=name_builder,
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
+        metadata_reader=reader,
     )
 
 

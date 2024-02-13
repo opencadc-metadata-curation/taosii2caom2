@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
@@ -70,7 +69,7 @@
 import os
 from mock import patch
 
-from caom2pipe.manage_composable import Config
+from caom2pipe.manage_composable import Config, TaskType
 from taosii2caom2 import composable, TAOSIIName
 
 
@@ -84,12 +83,10 @@ def test_run(run_mock, access_mock, test_config, tmp_path):
     access_mock.return_value = 'https://localhost:2022'
     test_f_id = 'test_file_id'
     test_f_name = f'{test_f_id}.hdf5'
-
     test_config.change_working_directory(tmp_path)
     test_config.proxy_file_name = 'test_proxy.pem'
     test_config.logging_level = 'DEBUG'
-    import logging
-    logging.error(test_config)
+    test_config.task_types = [TaskType.INGEST, TaskType.MODIFY]
 
     with open(test_config.proxy_fqn, 'w') as f:
         f.write('test content')
@@ -110,8 +107,5 @@ def test_run(run_mock, access_mock, test_config, tmp_path):
         assert isinstance(test_storage, TAOSIIName), type(test_storage)
         assert test_storage.obs_id == test_f_id, 'wrong obs id'
         assert test_storage.file_name == test_f_name, 'wrong file name'
-        assert (
-            test_storage.file_name == test_f_name
-        ), 'wrong fname on disk'
     finally:
         os.chdir(cwd)

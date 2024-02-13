@@ -93,6 +93,13 @@ def pytest_generate_tests(metafunc):
 
 
 def test_visitor(test_config, test_name):
+    """
+    taos2_20240208T233041Z_cmos31_012.h5 is a full-frame image file
+    taos2_20240208T233045Z_star987654321.h5 is a window mode image file
+    taos2_20240208T233034Z_star987654321_lcv.h5 is a lightcurve file
+    taos2_20240208T232951Z_star987654321.h5 is a combined window mode image/lightcurve file
+    taos2_20240209T191043Z_fsc_145.h5 is a finder scope image file
+    """
     storage_name = TAOSIIName(file_name=basename(test_name), source_names=[test_name])
     file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
     headers = []  # the default behaviour for "not a fits file"
