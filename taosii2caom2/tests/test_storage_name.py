@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
@@ -75,14 +74,24 @@ def test_is_valid():
 
 
 def test_storage_name(test_config):
-    for test_f_id in ['taos2lcv_obs_20230118T233621Z_star123987456', 'taos2_20220201T200117Z_cmos13_bias_001']:
+    for test_f_id in [
+        'taos2_20240208T232951Z_star987654321',
+        'taos2_20240208T233034Z_star987654321_lcv',
+        'taos2_20240208T233041Z_cmos31_012',
+        'taos2_20240208T233045Z_star987654321',
+        'taos2_20240209T191043Z_fsc_145',
+    ]:
         for prefix in ['', '/data/', 'cadc:TAOSII/']:
             test_f_name = f'{test_f_id}.h5'
             source_names = [f'{prefix}{test_f_id}.h5']
             test_subject = TAOSIIName(file_name=test_f_name, source_names=source_names)
-            assert test_subject.obs_id == test_f_id.replace('lcv_obs', ''), f'wrong obs id {test_subject.obs_id}'
+            assert test_subject.obs_id == test_f_id.replace('_lcv', ''), f'wrong obs id {test_subject.obs_id}'
             assert test_subject.file_name == test_f_name, 'wrong file name'
             assert test_subject.product_id == test_f_id, 'wrong product id'
             assert (
                 test_subject.destination_uris[0] == f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
             ), 'wrong destination uri'
+            if '_lcv' in test_f_id:
+                assert test_subject.is_lightcurve, f'lightcurve {test_f_id}'
+            else:
+                assert not test_subject.is_lightcurve, f'not lightcurve {test_f_id}'

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
@@ -77,7 +76,7 @@ from os.path import basename, dirname, exists, join, realpath
 from cadcdata import FileInfo
 from caom2.diff import get_differences
 from caom2pipe.manage_composable import read_obs_from_file, write_obs_to_file
-from caom2pipe.reader_composable import FileMetadataReader
+from caom2pipe.reader_composable import Hdf5FileMetadataReader
 from taosii2caom2 import TAOSIIName
 from taosii2caom2 import file2caom2_augmentation
 
@@ -89,7 +88,7 @@ PLUGIN = join(dirname(THIS_DIR), 'main_app.py')
 
 
 def pytest_generate_tests(metafunc):
-    obs_id_list = glob(f'{TEST_DATA_DIR}/*.h5')
+    obs_id_list = glob(f'{TEST_DATA_DIR}/2024/*.h5')
     metafunc.parametrize('test_name', obs_id_list)
 
 
@@ -97,14 +96,15 @@ def test_visitor(test_config, test_name):
     storage_name = TAOSIIName(file_name=basename(test_name), source_names=[test_name])
     file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
     headers = []  # the default behaviour for "not a fits file"
-    metadata_reader = FileMetadataReader()
+    metadata_reader = Hdf5FileMetadataReader()
     metadata_reader._headers = {storage_name.file_uri: headers}
     metadata_reader._file_info = {storage_name.file_uri: file_info}
     kwargs = {
         'storage_name': storage_name,
         'metadata_reader': metadata_reader,
+        'config': test_config,
     }
-    expected_fqn = f'{TEST_DATA_DIR}/{storage_name.obs_id}.expected.xml'
+    expected_fqn = f'{dirname(test_name)}/{storage_name.file_id}.expected.xml'
     actual_fqn = expected_fqn.replace('expected', 'actual')
     if exists(actual_fqn):
         unlink(actual_fqn)
@@ -129,8 +129,11 @@ def test_visitor(test_config, test_name):
                 msg = f'Differences found in observation {expected.observation_id}\n{compare_text}'
                 raise AssertionError(msg)
     else:
-        write_obs_to_file(observation, actual_fqn)
-        assert False, 'no expected observation'
+        if observation:
+            write_obs_to_file(observation, actual_fqn)
+            assert False, 'no expected observation'
+        else:
+            assert False, 'no Observation to check against, and no expected Observation to check with.'
     # assert False
 
 
