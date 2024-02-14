@@ -129,17 +129,16 @@ Position:
 import h5py
 import logging
 
-from astropy import wcs
 from datetime import datetime
 from os.path import basename
 
-from caom2 import CalibrationLevel, ProductType, DataProductType
-from caom2 import ObservationIntentType
+from caom2 import CalibrationLevel, DataProductType, ProductType
+from caom2 import ObservationIntentType, ObservationURI, PlaneURI, TypedSet
 
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
-from caom2pipe.astro_composable import add_as_s, build_ra_dec_as_deg
+from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
-from caom2pipe.manage_composable import CadcException, StorageName, to_float, ValueRepairCache
+from caom2pipe.manage_composable import CaomName, StorageName, ValueRepairCache
 
 
 __all__ = ['TAOSII2caom2Visitor', 'TAOSIIName']
@@ -214,10 +213,6 @@ class BasicMapping(TelescopeMapping):
           }
         }
 
-        :param bp:
-        :return:
-        """
-        """
         need n WCS instances - one per site, so three per file, so, how
         to know when to create those, and how many to create?
         - I think that knowing there are n (three) per file is just a thing
@@ -248,7 +243,7 @@ class BasicMapping(TelescopeMapping):
 
         utc_now = datetime.utcnow()
         bp.set('Observation.intent', self.get_observation_intent(0))
-        bp.set('Plane.dataProductType', DataProductType.IMAGE)
+        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
 
         bp.set_default('Observation.metaRelease', utc_now)
         bp.set('Plane.dataRelease', utc_now)
@@ -269,16 +264,27 @@ class BasicMapping(TelescopeMapping):
         bp.set('Observation.telescope.geoLocationY', -4940894.8697881885)
         bp.set('Observation.telescope.geoLocationZ', 3271243.2086214763)
 
-        if 'master' in self._storage_name.file_name:
-            bp.set('Observation.algorithm.name', 'master')
-            bp.set('DerivedObservation.members', {})
-            bp.set('Plane.provenance.inputs', ([f'{self._prefix}/HEADER/CALIBRATION/FILE'], None))
-            bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+        # all the samples are calibrated
+        bp.set('Observation.algorithm.name', self.get_algorithm_name())
+        bp.set('DerivedObservation.members', {})
+        bp.set('Plane.provenance.name', (['//FILE/ORIGIN'], None))
+        bp.set('Plane.provenance.version', self.get_provenance_version())
+        bp.set('Plane.provenance.lastExecuted', (['//FILE/FILE_DATE'], None))
+        bp.set('Plane.provenance.inputs', self.get_provenance_inputs())
+        bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
 
         bp.set('Artifact.productType', self.get_product_type())
 
+        bp.set('Chunk.time.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
+        bp.set(
+            'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
+        )
+        bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
         bp.set('Chunk.time.axis.axis.ctype', 'TIME')
-        bp.set('Chunk.time.axis.axis.cunit', 'd')
+        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
         bp.set('Chunk.time.exposure', ([f'{self._prefix}/HEADER/EXPOSURE/EXPOSURE'], None))
         bp.set('Chunk.time.mjdref', ([f'{self._prefix}/HEADER/COORDSYS/MJDREF'], None))
         # JJK 30-01-23
@@ -301,17 +307,34 @@ class BasicMapping(TelescopeMapping):
         # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
         # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
         #
+        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
+        bp.set(
+            'Chunk.energy.axis.function.delta',
+            ([f'/HEADER/WCS/CD({self._energy_axis - 1}:{self._energy_axis - 1})'], None),
+        )
+        bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
         bp.set('Chunk.energy.specsys', 'TOPOCENT')
         bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
         bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
         bp.set('Chunk.energy.bandpassName', 'CLEAR')
         bp.set('Chunk.energy.resolvingPower', 1.575)
-        bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
-        # units as output by astropy.wcs.WCS
-        bp.set('Chunk.energy.axis.axis.cunit', 'm')
 
     def _get_obs_type(self):
         return self._lookup(f'{self._prefix}/HEADER/OBS/OBSTYPE')
+
+    def _get_provenance_inputs(self):
+        return self._lookup(f'{self._prefix}/HEADER/CALIBRATION/FILE')
+
+    def get_algorithm_name(self):
+        result = 'lightcurve'
+        temp = self._lookup(f'{self._prefix}/HEADER/OBS/EXPTYPE')
+        if temp:
+            result = temp.lower()
+        return result
 
     def get_instrument_name(self, ext):
         if self._storage_name.is_fsc:
@@ -347,6 +370,23 @@ class BasicMapping(TelescopeMapping):
             }
             result = x.get(obstype) if x.get(obstype) else ProductType.AUXILIARY
         return result
+
+    def get_provenance_inputs(self):
+        temp = self._get_provenance_inputs()
+        plane_inputs = TypedSet(PlaneURI)
+        if temp is not None:
+            for entry in temp:
+                obs_id = TAOSIIName.replace_for_obs_id(entry.decode('utf-8'))
+                obs_member_uri_str = CaomName.make_obs_uri_from_obs_id(self._storage_name.collection, obs_id)
+                obs_member_uri = ObservationURI(obs_member_uri_str)
+                plane_uri = PlaneURI.get_plane_uri(obs_member_uri, entry.decode('utf-8'))
+                plane_inputs.add(plane_uri)
+                self._logger.debug(f'Adding PlaneURI {plane_uri}')
+        return plane_inputs
+
+    def get_provenance_version(self):
+        temp = self._lookup('//FILE/VERSION')
+        return '.'.join(str(ii) for ii in temp)
 
     def get_telescope_name(self, ext):
         result = 'TAOSII'
@@ -448,19 +488,19 @@ class Pointing(BasicMapping):
 
         bp.set('Artifact.productType', self.get_product_type())
 
-        bp.set(
-            'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
-        )
-        bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
-        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
+        # bp.set(
+        #     'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
+        # )
+        # bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
+        # bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
+        # bp.set('Chunk.time.axis.axis.ctype', 'TIME')
+        # bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
+        # bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
 
-        bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
+        # bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
+        # bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
+        # bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
+        # bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
         self._logger.debug('End accumulate_blueprint')
 
 
@@ -474,11 +514,11 @@ class TargetSpectralTemporal(Pointing):
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
-        bp.set('Observation.target.targetID', ([f'{self._prefix}/HEADER/OBJECT/OBJ_ID'], None))
+        bp.set('Observation.target.targetID', self.get_target_id())
         bp.set('Observation.target.type', self.get_target_type())
-        bp.set('Observation.target_position.point.cval1', 'get_target_position_cval1()')
-        bp.set('Observation.target_position.point.cval2', 'get_target_position_cval2()')
-        bp.set('Observation.target_position.coordsys', ([f'{self._prefix}/HEADER/COORDSYS/RADECSYS'], None))
+        bp.set('Observation.target_position.point.cval1', self.get_target_position_cval1())
+        bp.set('Observation.target_position.point.cval2', self.get_target_position_cval2())
+        bp.set('Observation.target_position.coordsys', self.get_target_coordsys())
 
     def _get_target_position(self):
         obj_ra = self._lookup(f'{self._prefix}/HEADER/OBJECT/OBJ_RA')
@@ -490,11 +530,17 @@ class TargetSpectralTemporal(Pointing):
             ra, dec = build_ra_dec_as_deg(obj_ra, obj_dec)
         return ra, dec
 
-    def get_target_position_cval1(self, ext):
+    def get_target_coordsys(self):
+        return self._lookup(f'{self._prefix}/HEADER/COORDSYS/RADECSYS')
+
+    def get_target_id(self):
+        return self._lookup(f'{self._prefix}/HEADER/OBJECT/OBJ_ID')
+
+    def get_target_position_cval1(self):
         ra, _ = self._get_target_position()
         return ra
 
-    def get_target_position_cval2(self, ext):
+    def get_target_position_cval2(self):
         _, dec = self._get_target_position()
         return dec
 
@@ -519,8 +565,8 @@ class Single(TargetSpectralTemporal):
         bp.configure_position_axes((1, 2))
         bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
 
-        bp.set('Chunk.position.axis.function.dimension.naxis1', 1920)
-        bp.set('Chunk.position.axis.function.dimension.naxis2', 4608)
+        bp.set('Chunk.position.axis.function.dimension.naxis1', self.get_naxis1())
+        bp.set('Chunk.position.axis.function.dimension.naxis2', self.get_naxis2())
         bp.set('Chunk.position.axis.function.refCoord.coord1.pix', (['/HEADER/WCS/CRPIX(0)'], None))
         bp.set('Chunk.position.axis.function.refCoord.coord1.val', (['/HEADER/WCS/CRVAL(0)'], None))
         bp.set('Chunk.position.axis.function.refCoord.coord2.pix', (['/HEADER/WCS/CRPIX(1)'], None))
@@ -536,7 +582,56 @@ class Single(TargetSpectralTemporal):
         # JJK 30-01-23
         # coordsys: null should likely be coordsys: ICRS
         bp.set('Chunk.position.coordsys', ([f'{self._prefix}/HEADER/COORDSYS/RADECSYS'], None))
-        # logging.error(bp)
+
+    def _get_naxis(self, index):
+        temp = self._lookup(f'{self._prefix}/SITE1/HEADER/PIXSEC/DATASEC')
+        return temp[index][1] - temp[index][0] + 1
+
+    def get_naxis1(self):
+        return self._get_naxis(0)
+
+    def get_naxis2(self):
+        return self._get_naxis(1)
+
+
+class FullFrameImage(Single):
+    def __init__(
+        self, storage_name, h5file, clients, observable, observation, config, prefix
+    ):
+        super().__init__(
+            storage_name, h5file, clients, observable, observation, config, prefix
+        )
+
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
+        bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+
+    def _get_target_position(self):
+        pointing_ra = self._lookup(f'{self._prefix}/HEADER/POINTING/TEL_RA')
+        pointing_dec = self._lookup(f'{self._prefix}/HEADER/POINTING/TEL_DEC')
+        if pointing_ra is None or pointing_dec is None:
+            ra = None
+            dec = None
+        else:
+            ra, dec = build_ra_dec_as_deg(pointing_ra, pointing_dec)
+        return ra, dec
+
+    def get_target_coordsys(self):
+        return self._lookup(f'{self._prefix}/HEADER/COORDSYS/RADECSYS')
+
+    def get_target_id(self):
+        return self._lookup(f'{self._prefix}/HEADER/POINTING/FIELD')
+
+    def get_target_position_cval1(self):
+        ra, _ = self._get_target_position()
+        return ra
+
+    def get_target_position_cval2(self):
+        _, dec = self._get_target_position()
+        return dec
+
+    def get_target_type(self):
+        return 'field'
 
 
 class TimeseriesMapping(Single):
@@ -547,7 +642,28 @@ class TimeseriesMapping(Single):
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
-        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
+
+
+class Lightcurve(TargetSpectralTemporal):
+    def __init__(
+        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
+    ):
+        super().__init__(
+            storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
+        )
+
+    def _get_provenance_inputs(self):
+        return self._lookup(f'{self._prefix}/HEADER/CAL/FILE')
+
+
+class FSC(FullFrameImage):
+    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
+        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
+
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
+        bp.set('Plane.dataProductType', DataProductType.IMAGE)
+        bp.clear('Chunk.energy.resolvingPower')
 
 
 class TAOSIIName(StorageName):
@@ -566,6 +682,10 @@ class TAOSIIName(StorageName):
         return '_fsc' in self._file_name
 
     @property
+    def is_fullframe(self):
+        return '_cmos' in self._file_name
+
+    @property
     def is_lightcurve(self):
         return self._product_id.endswith('_lcv')
 
@@ -573,10 +693,18 @@ class TAOSIIName(StorageName):
         return True
 
     def set_file_id(self):
-        self._file_id = StorageName.remove_extensions(self._file_name).replace('.hdf5', '').replace('.h5', '')
+        self._file_id = TAOSIIName.remove_extensions(self._file_name)
 
     def set_obs_id(self):
-        self._obs_id = self._file_id.replace('_lcv', '')
+        self._obs_id = TAOSIIName.replace_for_obs_id(self._file_id)
+
+    @staticmethod
+    def remove_extensions(value):
+        return StorageName.remove_extensions(value).replace('.hdf5', '').replace('.h5', '')
+
+    @staticmethod
+    def replace_for_obs_id(value):
+        return TAOSIIName.remove_extensions(value).replace('_lcv', '')
 
 
 class TAOSII2caom2Visitor(Fits2caom2Visitor):
@@ -585,6 +713,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
         super().__init__(observation, **kwargs)
         self._h5_file = h5py.File(self._storage_name.source_names[0])
         self._prefix = None
+        self._mapping = None
 
     def _get_blueprint(self, instantiated_class):
         return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
@@ -595,7 +724,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
         else:
             self._prefix = 'IMAGE'
         if self._storage_name.is_lightcurve:
-            result = TargetSpectralTemporal(
+            result = Lightcurve(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
@@ -605,6 +734,16 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._prefix,
                 time_axis=1,
                 energy_axis=2,
+            )
+        elif self._storage_name.is_fullframe:
+            result = FullFrameImage(
+                self._storage_name,
+                self._h5_file,
+                self._clients,
+                self._observable,
+                self._observation,
+                self._config,
+                self._prefix,
             )
         elif '_star' in self._storage_name.file_name:
             result = TimeseriesMapping(
@@ -619,7 +758,6 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
         elif (
             '_focus' in self._storage_name.file_name
             or '_point' in self._storage_name.file_name
-            or self._storage_name.is_fsc
         ):
             result = Pointing(
                 self._storage_name,
@@ -631,6 +769,16 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._prefix,
                 time_axis=3,
                 energy_axis=4,
+            )
+        elif self._storage_name.is_fsc:
+            result = FSC(
+                self._storage_name,
+                self._h5_file,
+                self._clients,
+                self._observable,
+                self._observation,
+                self._config,
+                self._prefix,
             )
         elif (
             '_domeflat' in self._storage_name.file_name
@@ -657,16 +805,21 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._prefix,
             )
         self._logger.debug(f'Created mapping {result.__class__.__name__}.')
+        self._mapping = result
         return result
 
     def _get_parser(self, headers, blueprint, uri):
         self._logger.debug(f'Using an Hdf5Parser for {self._storage_name.file_uri}')
+        extension_names = [f'{self._prefix}/SITE1', f'{self._prefix}/SITE2', f'{self._prefix}/SITE3']
+        # for key in ['IMAGE', 'LIGHTCURVE']:
+        #     for site in ['SITE1', 'SITE2', 'SITE3']:
+        #         # have to look for leaves - branches come back with None from _lookup
+        #         x = f'{key}/{site}/HEADER/WCS/CNAME'
+        #         found = self._mapping._lookup(x)
+        #         if found is not None:
+        #             extension_names.append(f'{key}/{site}')
+        self._logger.info(f'Finding data in {extension_names} for {self._storage_name.file_name}')
         # this assumes only working with one file at a time, and also, that
         # the file is local (which, as of the time of this writing, the file
         # has to be local, until there is an --fhead option for HDF5 files)
-        return Hdf5Parser(
-            blueprint,
-            uri,
-            self._h5_file,
-            extension_names=[f'{self._prefix}/SITE1', f'{self._prefix}/SITE2', f'{self._prefix}/SITE3'],
-        )
+        return Hdf5Parser(blueprint, uri, self._h5_file, extension_names=extension_names)
