@@ -719,6 +719,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
         return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
 
     def _get_mapping(self, headers, _):
+        # taos2_20240221T014139Z_star987654321 IMAGE + LIGHTCURVE
         if self._storage_name.is_lightcurve:
             self._prefix = 'LIGHTCURVE'
         else:
@@ -810,14 +811,15 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
 
     def _get_parser(self, headers, blueprint, uri):
         self._logger.debug(f'Using an Hdf5Parser for {self._storage_name.file_uri}')
-        extension_names = [f'{self._prefix}/SITE1', f'{self._prefix}/SITE2', f'{self._prefix}/SITE3']
-        # for key in ['IMAGE', 'LIGHTCURVE']:
-        #     for site in ['SITE1', 'SITE2', 'SITE3']:
-        #         # have to look for leaves - branches come back with None from _lookup
-        #         x = f'{key}/{site}/HEADER/WCS/CNAME'
-        #         found = self._mapping._lookup(x)
-        #         if found is not None:
-        #             extension_names.append(f'{key}/{site}')
+        # extension_names = [f'{self._prefix}/SITE1', f'{self._prefix}/SITE2', f'{self._prefix}/SITE3']
+        extension_names = []
+        for key in ['IMAGE', 'LIGHTCURVE']:
+            for site in ['SITE1', 'SITE2', 'SITE3']:
+                # have to look for leaves - branches come back with None from _lookup
+                x = f'{key}/{site}/HEADER/WCS/CNAME'
+                found = self._mapping._lookup(x)
+                if found is not None:
+                    extension_names.append(f'{key}/{site}')
         self._logger.info(f'Finding data in {extension_names} for {self._storage_name.file_name}')
         # this assumes only working with one file at a time, and also, that
         # the file is local (which, as of the time of this writing, the file
