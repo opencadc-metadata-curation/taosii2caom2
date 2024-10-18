@@ -124,11 +124,20 @@ Position:
 >>> w.wcs.ctype = ['RA---TAN', 'DEC--TAN']
 >>> print(w.to_header())
 
+
+Mapping Notes:
+1. Single Lightcurve File - up to three lightcurves, one from each telescope.
+    a. EXPTYPE - generally used for algorithm.name, not expected to be found.
+               - algorithm.name is hard-coded
+    b. DATASEC - generally used for finding NAXISij values, not expected to be found.
+               - refCoord.coord1.pix, refCoord.coord2.pix hard-coded to 0.5
+2. High-speed Window Mode
 """
 
 import h5py
 import logging
 
+from collections import defaultdict
 from datetime import datetime
 from os.path import basename
 
@@ -138,7 +147,7 @@ from caom2 import ObservationIntentType, ObservationURI, PlaneURI, TypedSet
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
 from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
-from caom2pipe.manage_composable import CaomName, StorageName, ValueRepairCache
+from caom2pipe.manage_composable import CadcException, CaomName, StorageName, ValueRepairCache
 
 
 __all__ = ['TAOSII2caom2Visitor', 'TAOSIIName']
@@ -241,14 +250,15 @@ class BasicMapping(TelescopeMapping):
         bp.configure_time_axis(self._time_axis)
         bp.configure_energy_axis(self._energy_axis)
 
-        utc_now = datetime.utcnow()
+        now = datetime.now()
         bp.set('Observation.intent', self.get_observation_intent(0))
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
 
-        bp.set_default('Observation.metaRelease', utc_now)
-        bp.set('Plane.dataRelease', utc_now)
-        bp.set('Plane.metaRelease', utc_now)
+        bp.set_default('Observation.metaRelease', now)
+        bp.set('Plane.dataRelease', now)
+        bp.set('Plane.metaRelease', now)
 
+        bp.set('Observation.sequenceNumber', ([f'{self._prefix}/HEADER/RUN/RUN_SEQ'], None))
         bp.set('Observation.type', ([f'{self._prefix}/OBS/OBSTYPE'], 'IMAGE'))
         bp.set('Observation.instrument.name', 'get_instrument_name()')
         bp.set('Observation.instrument.keywords', ([f'{self._prefix}/HEADER/OBS/EXPTYPE'], None))
@@ -394,25 +404,21 @@ class BasicMapping(TelescopeMapping):
             result = 'TAOSIIFSC'
         return result
 
-    def _lookup(self, things):
-        things_replaced = things.replace('//', '', 1)
-
-        def hd5f_visit(name, object):
-            if isinstance(object, h5py.Dataset) and object.dtype.names is not None:
-                # 'name' starts without a directory separator
-                if things_replaced.startswith(name):
-                    for d_name in object.dtype.names:
-                        temp = f'{name}/{d_name}'
-                        if temp == things_replaced:
-                            return object[d_name]
-
-        result = self._h5_file.visititems(hd5f_visit)
+    def _lookup(self, things, fishing=False):
+        """
+        :params
+        :things str - POSIX path breadcrumbs
+        :fishing bool - True if doing a lookup for characterization, so set the logging level accordingly
+        """
+        result = _lookup(self._h5_file, things)
         if result is None:
-            self._logger.warning(f'Could not find {things} in {self._storage_name.file_name}')
+            msg = f'Could not find {things} in {self._storage_name.file_name}'
+            if fishing:
+                self._logger.debug(msg)
+            else:
+                self._logger.warning(msg)
         else:
             self._logger.debug(f'Found {result} for {things}')
-            if hasattr(result, 'decode'):
-                result = result.decode('utf-8')
         return result
 
     def _update_artifact(self, artifact):
@@ -424,7 +430,6 @@ class BasicMapping(TelescopeMapping):
                         # time is range, not function, and at this time, the
                         # blueprint will always set the function
                         chunk.time.axis.function = None
-                    # chunk.time.trefpos = None
                     chunk.time_axis = None
                 if (
                     chunk.energy is not None
@@ -439,8 +444,6 @@ class BasicMapping(TelescopeMapping):
                 if chunk.position is not None and chunk.position_axis_1 is not None:
                     chunk.position_axis_1 = None
                     chunk.position_axis_2 = None
-                if self._storage_name.is_lightcurve and chunk.position is not None:
-                    chunk.position = None
         self._logger.debug('End _update_artifact')
 
 
@@ -487,20 +490,6 @@ class Pointing(BasicMapping):
         bp.set('Observation.target.name', ([f'{self._prefix}/HEADER/POINTING/FIELD_ID'], None))
 
         bp.set('Artifact.productType', self.get_product_type())
-
-        # bp.set(
-        #     'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
-        # )
-        # bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
-        # bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
-        # bp.set('Chunk.time.axis.axis.ctype', 'TIME')
-        # bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
-        # bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
-
-        # bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
-        # bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
-        # bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
-        # bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
         self._logger.debug('End accumulate_blueprint')
 
 
@@ -555,37 +544,79 @@ class TargetSpectralTemporal(Pointing):
 
 class Single(TargetSpectralTemporal):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
+    def __init__(
+        self,
+        storage_name,
+        h5file,
+        clients,
+        observable,
+        observation,
+        config,
+        prefix,
+        time_axis,
+        energy_axis,
+        spatial_axis_1,
+    ):
         super().__init__(
-            storage_name, h5file, clients, observable, observation, config, prefix, time_axis=3, energy_axis=4
+            storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
         )
+        # expect this to be 1 for 0, 1 CD matrix references
+        #                   2 for 1, 2 CD matrix references
+        self._spatial_axis = spatial_axis_1
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
-        bp.configure_position_axes((1, 2))
+        bp.configure_position_axes((self._spatial_axis - 1, self._spatial_axis))
         bp.set('Plane.calibrationLevel', CalibrationLevel.RAW_STANDARD)
 
         bp.set('Chunk.position.axis.function.dimension.naxis1', self.get_naxis1())
         bp.set('Chunk.position.axis.function.dimension.naxis2', self.get_naxis2())
-        bp.set('Chunk.position.axis.function.refCoord.coord1.pix', (['/HEADER/WCS/CRPIX(0)'], None))
-        bp.set('Chunk.position.axis.function.refCoord.coord1.val', (['/HEADER/WCS/CRVAL(0)'], None))
-        bp.set('Chunk.position.axis.function.refCoord.coord2.pix', (['/HEADER/WCS/CRPIX(1)'], None))
-        bp.set('Chunk.position.axis.function.refCoord.coord2.val', (['/HEADER/WCS/CRVAL(1)'], None))
-        bp.set('Chunk.position.axis.axis1.ctype', (['/HEADER/WCS/CTYPE(0)'], None))
-        bp.set('Chunk.position.axis.axis1.cunit', (['/HEADER/WCS/CUNIT(0)'], None))
-        bp.set('Chunk.position.axis.axis2.ctype', (['/HEADER/WCS/CTYPE(1)'], None))
-        bp.set('Chunk.position.axis.axis2.cunit', (['/HEADER/WCS/CUNIT(1)'], None))
-        bp.set('Chunk.position.axis.function.cd11', (['/HEADER/WCS/CD(0:0)'], None))
-        bp.set('Chunk.position.axis.function.cd12', (['/HEADER/WCS/CD(0:1)'], None))
-        bp.set('Chunk.position.axis.function.cd21', (['/HEADER/WCS/CD(1:0)'], None))
-        bp.set('Chunk.position.axis.function.cd22', (['/HEADER/WCS/CD(1:1)'], None))
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord1.pix',
+            ([f'/HEADER/WCS/CRPIX({self._spatial_axis - 1})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord1.val',
+            ([f'/HEADER/WCS/CRVAL({self._spatial_axis - 1})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord2.pix',
+            ([f'/HEADER/WCS/CRPIX({self._spatial_axis})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.refCoord.coord2.val',
+            ([f'/HEADER/WCS/CRVAL({self._spatial_axis})'], None),
+        )
+        bp.set('Chunk.position.axis.axis1.ctype', ([f'/HEADER/WCS/CTYPE({self._spatial_axis - 1})'], None))
+        bp.set('Chunk.position.axis.axis1.cunit', ([f'/HEADER/WCS/CUNIT({self._spatial_axis - 1})'], None))
+        bp.set('Chunk.position.axis.axis2.ctype', ([f'/HEADER/WCS/CTYPE({self._spatial_axis})'], None))
+        bp.set('Chunk.position.axis.axis2.cunit', ([f'/HEADER/WCS/CUNIT({self._spatial_axis})'], None))
+        bp.set(
+            'Chunk.position.axis.function.cd11',
+            ([f'/HEADER/WCS/CD({self._spatial_axis - 1}:{self._spatial_axis - 1})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd12',
+            ([f'/HEADER/WCS/CD({self._spatial_axis - 1}:{self._spatial_axis})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd21',
+            ([f'/HEADER/WCS/CD({self._spatial_axis}:{self._spatial_axis - 1})'], None),
+        )
+        bp.set(
+            'Chunk.position.axis.function.cd22',
+            ([f'/HEADER/WCS/CD({self._spatial_axis}:{self._spatial_axis})'], None),
+        )
         # JJK 30-01-23
         # coordsys: null should likely be coordsys: ICRS
         bp.set('Chunk.position.coordsys', ([f'{self._prefix}/HEADER/COORDSYS/RADECSYS'], None))
 
     def _get_naxis(self, index):
         temp = self._lookup(f'{self._prefix}/SITE1/HEADER/PIXSEC/DATASEC')
-        return temp[index][1] - temp[index][0] + 1
+        result = None
+        if temp:
+            result = temp[index][1] - temp[index][0] + 1
+        return result
 
     def get_naxis1(self):
         return self._get_naxis(0)
@@ -595,16 +626,24 @@ class Single(TargetSpectralTemporal):
 
 
 class FullFrameImage(Single):
-    def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix
-    ):
+    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
         super().__init__(
-            storage_name, h5file, clients, observable, observation, config, prefix
+            storage_name,
+            h5file,
+            clients,
+            observable,
+            observation,
+            config,
+            prefix,
+            time_axis=3,
+            energy_axis=4,
+            spatial_axis_1=1,
         )
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+        bp.set('Plane.dataProductType', DataProductType.IMAGE)
 
     def _get_target_position(self):
         pointing_ra = self._lookup(f'{self._prefix}/HEADER/POINTING/TEL_RA')
@@ -637,20 +676,71 @@ class FullFrameImage(Single):
 class TimeseriesMapping(Single):
 
     def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
-        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
+        super().__init__(
+            storage_name,
+            h5file,
+            clients,
+            observable,
+            observation,
+            config,
+            prefix,
+            time_axis=3,
+            energy_axis=4,
+            spatial_axis_1=1,
+        )
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Plane.calibrationLevel', CalibrationLevel.PRODUCT)
 
 
-class Lightcurve(TargetSpectralTemporal):
+class Lightcurve(Single):
     def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
+        self,
+        storage_name,
+        h5file,
+        clients,
+        observable,
+        observation,
+        config,
+        prefix,
+        time_axis=1,
+        energy_axis=4,
+        spatial_axis_1=2,
     ):
         super().__init__(
-            storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
+            storage_name,
+            h5file,
+            clients,
+            observable,
+            observation,
+            config,
+            prefix,
+            time_axis,
+            energy_axis,
+            spatial_axis_1,
         )
+
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
+        # guess based on other test light-curve file cal levels
+        bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+        bp.set('Artifact.productType', ProductType.SCIENCE)
+
+        # this is my guess
+        bp.set('Chunk.position.axis.function.dimension.naxis1', 1)
+        bp.set('Chunk.position.axis.function.dimension.naxis2', 1)
+        bp.set('Chunk.position.axis.function.refCoord.coord1.pix', 0.0)
+        bp.set('Chunk.position.axis.function.refCoord.coord2.pix', 0.0)
+
+        bp.set('Chunk.time.axis.function.naxis', self._get_lightcurve_time_naxis())
+
+    def _get_lightcurve_time_naxis(self):
+        # set the value as a function to avoid relying on the Part index
+        result = self._lookup(f'{self._prefix}/HEADER/EXPOSURE/NUM_EPOCHS')
+        if result is None:
+            result = self._lookup(f'IMAGE/HEADER/EXPOSURE/NUM_EPOCHS')
+        return result
 
     def _get_provenance_inputs(self):
         return self._lookup(f'{self._prefix}/HEADER/CAL/FILE')
@@ -662,7 +752,6 @@ class FSC(FullFrameImage):
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
-        bp.set('Plane.dataProductType', DataProductType.IMAGE)
         bp.clear('Chunk.energy.resolvingPower')
 
 
@@ -712,116 +801,179 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
     def __init__(self, observation, **kwargs):
         super().__init__(observation, **kwargs)
         self._h5_file = h5py.File(self._storage_name.source_names[0])
-        self._prefix = None
-        self._mapping = None
+        self._mappings = {}
+        self._extension_names = defaultdict(list)
 
     def _get_blueprint(self, instantiated_class):
         return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
 
-    def _get_mapping(self, headers, _):
-        # taos2_20240221T014139Z_star987654321 IMAGE + LIGHTCURVE
+    def _get_mappings(self, headers, _):
+        """
+        Some file types require multiple mappings - e.g. images and lightcurves in the same file.
+        """
+        for key in ['IMAGE', 'LIGHTCURVE']:
+            for site in ['SITE1', 'SITE2', 'SITE3']:
+                # have to look for leaves - branches come back with None from _lookup
+                x = f'{key}/{site}/HEADER/WCS/CNAME'
+                found = _lookup(self._h5_file, x)
+                if found is not None:
+                    self._extension_names[key].append(f'{key}/{site}')
+
         if self._storage_name.is_lightcurve:
-            self._prefix = 'LIGHTCURVE'
+            prefix = 'LIGHTCURVE'
         else:
-            self._prefix = 'IMAGE'
+            prefix = 'IMAGE'
         if self._storage_name.is_lightcurve:
-            result = Lightcurve(
+            self._mappings[prefix] = Lightcurve(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
-                time_axis=1,
-                energy_axis=2,
+                prefix,
             )
         elif self._storage_name.is_fullframe:
-            result = FullFrameImage(
+            self._mappings[prefix] = FullFrameImage(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                prefix,
             )
         elif '_star' in self._storage_name.file_name:
-            result = TimeseriesMapping(
+            self._mappings['IMAGE'] = TimeseriesMapping(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                'IMAGE',
             )
-        elif (
-            '_focus' in self._storage_name.file_name
-            or '_point' in self._storage_name.file_name
-        ):
-            result = Pointing(
+            if len(self._extension_names) > 1:
+                # for the files that have images and lightcurves together again
+                self._mappings['LIGHTCURVE'] = Lightcurve(
+                    self._storage_name,
+                    self._h5_file,
+                    self._clients,
+                    self._observable,
+                    self._observation,
+                    self._config,
+                    'LIGHTCURVE',
+                )
+        elif '_focus' in self._storage_name.file_name or '_point' in self._storage_name.file_name:
+            self._mappings[prefix] = Pointing(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                prefix,
                 time_axis=3,
                 energy_axis=4,
             )
         elif self._storage_name.is_fsc:
-            result = FSC(
+            self._mappings[prefix] = FSC(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                prefix,
             )
         elif (
             '_domeflat' in self._storage_name.file_name
             or '_dark' in self._storage_name.file_name
             or '_bias' in self._storage_name.file_name
         ):
-            result = DomeflatMapping(
+            self._mappings[prefix] = DomeflatMapping(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                prefix,
             )
         else:
-            result = Single(
+            self._mappings[prefix] = Single(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
                 self._observable,
                 self._observation,
                 self._config,
-                self._prefix,
+                prefix,
+                time_axis=3,
+                energy_axis=4,
+                spatial_axis_1=1,
             )
-        self._logger.debug(f'Created mapping {result.__class__.__name__}.')
-        self._mapping = result
-        return result
+
+        for mapping in self._mappings.values():
+            self._logger.debug(f'Created mapping {mapping.__class__.__name__}.')
+        return [mapping for mapping in self._mappings.values()]
 
     def _get_parser(self, headers, blueprint, uri):
         self._logger.debug(f'Using an Hdf5Parser for {self._storage_name.file_uri}')
-        # extension_names = [f'{self._prefix}/SITE1', f'{self._prefix}/SITE2', f'{self._prefix}/SITE3']
         extension_names = []
         for key in ['IMAGE', 'LIGHTCURVE']:
-            for site in ['SITE1', 'SITE2', 'SITE3']:
-                # have to look for leaves - branches come back with None from _lookup
-                x = f'{key}/{site}/HEADER/WCS/CNAME'
-                found = self._mapping._lookup(x)
-                if found is not None:
-                    extension_names.append(f'{key}/{site}')
+            temp = blueprint._get('Observation.sequenceNumber')
+            temp_lookup = None
+            if isinstance(temp, tuple):
+                paths, _ = temp
+                temp_lookup = paths[0]
+            else:
+                temp_lookup = temp
+            if key in temp_lookup:
+                extension_names = self._extension_names.get(key)
+                break
+
+        # figure out which mapping is in use, to provide the parser with the right extension names and indices
+        if len(extension_names) == 0:
+            raise CadcException(f'This should not happen')
         self._logger.info(f'Finding data in {extension_names} for {self._storage_name.file_name}')
-        # this assumes only working with one file at a time, and also, that
-        # the file is local (which, as of the time of this writing, the file
-        # has to be local, until there is an --fhead option for HDF5 files)
-        return Hdf5Parser(blueprint, uri, self._h5_file, extension_names=extension_names)
+
+        if len(self._extension_names) > 1 and 'LIGHTCURVE' in extension_names[0]:
+            extension_start_index=3
+            extension_end_index=6  #  5 + 1 for use in range
+        else:
+            extension_start_index=0
+            extension_end_index=3  # 2 + 1 for use in range
+        # this assumes only working with one file at a time, and also, that the file is local (which, as of the time
+        # of this writing, the file has to be local, until there is an --fhead option for HDF5 files)
+        return Hdf5Parser(
+            blueprint,
+            uri,
+            self._h5_file,
+            extension_names=extension_names,
+            extension_start_index=extension_start_index,
+            extension_end_index=extension_end_index,
+        )
+
+
+def _lookup(h5_file, things):
+    """
+    :params
+    :things str - POSIX path breadcrumbs
+    :fishing bool - True if doing a lookup for characterization, so set the logging level accordingly
+    """
+    things_replaced = things.replace('//', '', 1)
+
+    def hd5f_visit(name, object):
+        if isinstance(object, h5py.Dataset) and object.dtype.names is not None:
+            # 'name' starts without a directory separator
+            if things_replaced.startswith(name):
+                for d_name in object.dtype.names:
+                    temp = f'{name}/{d_name}'
+                    if temp == things_replaced:
+                        return object[d_name]
+
+    result = h5_file.visititems(hd5f_visit)
+    if result is not None and hasattr(result, 'decode'):
+        result = result.decode('utf-8')
+    return result
