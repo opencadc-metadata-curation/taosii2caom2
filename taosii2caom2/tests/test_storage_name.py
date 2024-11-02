@@ -85,7 +85,7 @@ def test_storage_name(test_config):
             test_f_name = f'{test_f_id}.h5'
             source_names = [f'{prefix}{test_f_id}.h5']
             test_subject = TAOSIIName(file_name=test_f_name, source_names=source_names)
-            assert test_subject.obs_id == test_f_id.replace('_lcv', ''), f'wrong obs id {test_subject.obs_id}'
+            assert test_subject.obs_id == test_f_id, f'wrong obs id {test_subject.obs_id}'
             assert test_subject.file_name == test_f_name, 'wrong file name'
             assert test_subject.product_id == test_f_id, 'wrong product id'
             assert (

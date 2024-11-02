@@ -132,19 +132,25 @@ Mapping Notes:
     b. DATASEC - generally used for finding NAXISij values, not expected to be found.
                - refCoord.coord1.pix, refCoord.coord2.pix hard-coded to 0.5
 2. High-speed Window Mode
+
+ML - Matt Lehner
+JJK - JJ Kavelaars
+
 """
 
 import h5py
 import logging
 
 from collections import defaultdict
-from datetime import datetime
 from os.path import basename
+
+from astropy.time import Time, TimeDelta
 
 from caom2 import CalibrationLevel, DataProductType, ProductType
 from caom2 import ObservationIntentType, ObservationURI, PlaneURI, TypedSet
 
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
+from caom2utils.blueprints import _to_float
 from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
 from caom2pipe.manage_composable import CadcException, CaomName, StorageName, ValueRepairCache
@@ -250,13 +256,12 @@ class BasicMapping(TelescopeMapping):
         bp.configure_time_axis(self._time_axis)
         bp.configure_energy_axis(self._energy_axis)
 
-        now = datetime.now()
         bp.set('Observation.intent', self.get_observation_intent(0))
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
 
-        bp.set_default('Observation.metaRelease', now)
-        bp.set('Plane.dataRelease', now)
-        bp.set('Plane.metaRelease', now)
+        bp.set_default('Observation.metaRelease', self._get_meta_release_value())
+        bp.set('Plane.dataRelease', self._get_data_release())
+        bp.set('Plane.metaRelease', self._get_meta_release_value())
 
         bp.set('Observation.sequenceNumber', ([f'{self._prefix}/HEADER/RUN/RUN_SEQ'], None))
         bp.set('Observation.type', ([f'{self._prefix}/OBS/OBSTYPE'], 'IMAGE'))
@@ -333,11 +338,51 @@ class BasicMapping(TelescopeMapping):
         bp.set('Chunk.energy.bandpassName', 'CLEAR')
         bp.set('Chunk.energy.resolvingPower', 1.575)
 
+    def _get_data_release(self):
+        result = None
+        meta_release_value = self._get_meta_release_value()
+        if meta_release_value:
+            # JJK, ML 23-10-24 - 5 year proprietary period for the data
+            # JJK 29-10-24 - no metadata proprietary period
+            from datetime import datetime
+            from dateutil.relativedelta import relativedelta
+            x = relativedelta(years=5)
+            self._logger.error(f'meta_release_value {meta_release_value}')
+            y = datetime.fromisoformat(meta_release_value)
+            self._logger.error(type(x))
+            self._logger.error(dir(x))
+            self._logger.error(x)
+            result = x + y
+            self._logger.error(f'result {result}')
+        return result
+
+    def _get_meta_release(self):
+        result = None
+        mjdref = self._lookup_for_links('HEADER/COORDSYS/MJDREF')
+        if mjdref:
+            obs_start = _to_float(self._lookup_for_links('HEADER/EXPOSURE/OBSSTART'))
+            if obs_start:
+                result = Time(mjdref, obs_start, format='mjd', scale='tt')
+            self._logger.error(f'result {result} mjdref {mjdref} obsstart {obs_start}')
+        return result
+
+    def _get_meta_release_value(self):
+        result = self._get_meta_release()
+        if result:
+            result.format = 'isot'
+            result = result.value
+        return result
+
     def _get_obs_type(self):
         return self._lookup(f'{self._prefix}/HEADER/OBS/OBSTYPE')
 
     def _get_provenance_inputs(self):
         return self._lookup(f'{self._prefix}/HEADER/CALIBRATION/FILE')
+
+    def _get_time_exposure(self):
+        result = _to_float(self._lookup_for_links('HEADER/EXPOSURE/EXPOSURE'))
+        self._logger.error(result)
+        return result
 
     def get_algorithm_name(self):
         result = 'lightcurve'
@@ -421,6 +466,12 @@ class BasicMapping(TelescopeMapping):
             self._logger.debug(f'Found {result} for {things}')
         return result
 
+    def _lookup_for_links(self, key_suffix):
+        result = self._lookup(f'{self._prefix}/{key_suffix}')
+        if result is None:
+            result = self._lookup(f'LIGHTCURVE/{key_suffix}')
+        return result
+
     def _update_artifact(self, artifact):
         self._logger.debug('Begin _update_artifact')
         for part in artifact.parts.values():
@@ -460,9 +511,10 @@ class DomeflatMapping(BasicMapping):
         bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/HEADER/EXPOSURE/OBSEND'], None))
 
         bp.set('Chunk.energy.axis.range.start.pix', 0.5)
-        bp.set('Chunk.energy.axis.range.start.val', 4.3e-7)
+        # values from ML - 23-10-24
+        bp.set('Chunk.energy.axis.range.start.val', 4.0e-7)
         bp.set('Chunk.energy.axis.range.end.pix', 1.5)
-        bp.set('Chunk.energy.axis.range.end.val', 8.3e-7)
+        bp.set('Chunk.energy.axis.range.end.val', 7.2e-7)
 
 
 class Pointing(BasicMapping):
@@ -724,7 +776,8 @@ class Lightcurve(Single):
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         # guess based on other test light-curve file cal levels
-        bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
+        bp.set('Plane.calibrationLevel', CalibrationLevel.ANALYSIS_PRODUCT)
+        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
         bp.set('Artifact.productType', ProductType.SCIENCE)
 
         # this is my guess
@@ -734,6 +787,8 @@ class Lightcurve(Single):
         bp.set('Chunk.position.axis.function.refCoord.coord2.pix', 0.0)
 
         bp.set('Chunk.time.axis.function.naxis', self._get_lightcurve_time_naxis())
+        bp.set('Chunk.time.exposure', self._get_time_exposure())
+        bp.set('Chunk.time.mjdref', self._get_time_mjdref())
 
     def _get_lightcurve_time_naxis(self):
         # set the value as a function to avoid relying on the Part index
@@ -744,6 +799,24 @@ class Lightcurve(Single):
 
     def _get_provenance_inputs(self):
         return self._lookup(f'{self._prefix}/HEADER/CAL/FILE')
+
+    def _get_time_exposure(self):
+        # the default option is for the stand-alone lightcurve files
+        result = self._lookup(f'{self._prefix}/HEADER/EXPOSURE/EXPOSURE')
+        if result is None:
+            # this option is for the files that have images and lightcurves together,
+            # and the HEADER metadata is a link
+            result = self._lookup(f'IMAGE/HEADER/EXPOSURE/EXPOSURE')
+        return result
+
+    def _get_time_mjdref(self):
+        # the default option is for the stand-alone lightcurve files
+        result = self._lookup(f'{self._prefix}/HEADER/COORDSYS/MJDREF')
+        if result is None:
+            # this option is for the files that have images and lightcurves together,
+            # and the HEADER metadata is a link
+            result = self._lookup(f'IMAGE/HEADER/COORDSYS/MJDREF')
+        return result
 
 
 class FSC(FullFrameImage):
@@ -793,7 +866,7 @@ class TAOSIIName(StorageName):
 
     @staticmethod
     def replace_for_obs_id(value):
-        return TAOSIIName.remove_extensions(value).replace('_lcv', '')
+        return TAOSIIName.remove_extensions(value)
 
 
 class TAOSII2caom2Visitor(Fits2caom2Visitor):

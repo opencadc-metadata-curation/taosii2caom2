@@ -88,7 +88,7 @@ PLUGIN = join(dirname(THIS_DIR), 'main_app.py')
 
 
 def pytest_generate_tests(metafunc):
-    obs_id_list = glob(f'{TEST_DATA_DIR}/2024/*.h5')
+    obs_id_list = glob(f'{TEST_DATA_DIR}/2024/try2/*.h5')
     metafunc.parametrize('test_name', obs_id_list)
 
 
@@ -125,7 +125,6 @@ def test_visitor(test_config, test_name):
 
     if exists(expected_fqn):
         expected = read_obs_from_file(expected_fqn)
-        _set_release_date_values(observation)
         compare_result = get_differences(expected, observation)
         if compare_result is not None:
             if observation is None:
@@ -143,13 +142,3 @@ def test_visitor(test_config, test_name):
             assert False, 'no Observation to check against, and no expected Observation to check with.'
     # assert False
 
-
-def _set_release_date_values(observation):
-    if observation is not None:
-        # the release date is "the time at which the file is received at CADC", which is random, and therfore hard to
-        # test with, so over-ride with a known value before doing the comparison to the expected value
-        release_date = datetime.strptime('2022-05-05T20:39:23.050', '%Y-%m-%dT%H:%M:%S.%f')
-        observation.meta_release = release_date
-        for plane in observation.planes.values():
-            plane.meta_release = release_date
-            plane.data_release = release_date

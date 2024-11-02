@@ -2,7 +2,7 @@
 <caom2:Observation xmlns:caom2="http://www.opencadc.org/caom2/xml/v2.4" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="caom2:DerivedObservation" caom2:id="888095b6-c456-404f-92ce-a06b91b56b61">
   <caom2:collection>TAOSII</caom2:collection>
   <caom2:observationID>taos2_20240221T014139Z_star987654321</caom2:observationID>
-  <caom2:metaRelease>2022-05-05T20:39:23.050000</caom2:metaRelease>
+  <caom2:metaRelease>2024-02-21T07:12:00.000</caom2:metaRelease>
   <caom2:algorithm>
     <caom2:name>lightcurve</caom2:name>
   </caom2:algorithm>
@@ -46,10 +46,10 @@
   <caom2:planes>
     <caom2:plane caom2:id="1b6e6844-039a-4d11-ab0e-1c67dac5c5ec">
       <caom2:productID>taos2_20240221T014139Z_star987654321</caom2:productID>
-      <caom2:metaRelease>2022-05-05T20:39:23.050000</caom2:metaRelease>
-      <caom2:dataRelease>2022-05-05T20:39:23.050000</caom2:dataRelease>
+      <caom2:metaRelease>2024-02-21T07:12:00.000</caom2:metaRelease>
+      <caom2:dataRelease>2029-02-21T07:12:00.000</caom2:dataRelease>
       <caom2:dataProductType>timeseries</caom2:dataProductType>
-      <caom2:calibrationLevel>2</caom2:calibrationLevel>
+      <caom2:calibrationLevel>4</caom2:calibrationLevel>
       <caom2:provenance>
         <caom2:name>TAOS_II</caom2:name>
         <caom2:version>1.0</caom2:version>
@@ -385,6 +385,8 @@
                       </caom2:function>
                     </caom2:axis>
                     <caom2:timesys>TT</caom2:timesys>
+                    <caom2:mjdref>60361.0</caom2:mjdref>
+                    <caom2:exposure>0.05</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -463,6 +465,8 @@
                       </caom2:function>
                     </caom2:axis>
                     <caom2:timesys>TT</caom2:timesys>
+                    <caom2:mjdref>60361.0</caom2:mjdref>
+                    <caom2:exposure>0.05</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
@@ -541,6 +545,8 @@
                       </caom2:function>
                     </caom2:axis>
                     <caom2:timesys>TT</caom2:timesys>
+                    <caom2:mjdref>60361.0</caom2:mjdref>
+                    <caom2:exposure>0.05</caom2:exposure>
                   </caom2:time>
                 </caom2:chunk>
               </caom2:chunks>
