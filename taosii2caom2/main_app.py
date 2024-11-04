@@ -347,13 +347,8 @@ class BasicMapping(TelescopeMapping):
             from datetime import datetime
             from dateutil.relativedelta import relativedelta
             x = relativedelta(years=5)
-            self._logger.error(f'meta_release_value {meta_release_value}')
             y = datetime.fromisoformat(meta_release_value)
-            self._logger.error(type(x))
-            self._logger.error(dir(x))
-            self._logger.error(x)
             result = x + y
-            self._logger.error(f'result {result}')
         return result
 
     def _get_meta_release(self):
@@ -363,7 +358,6 @@ class BasicMapping(TelescopeMapping):
             obs_start = _to_float(self._lookup_for_links('HEADER/EXPOSURE/OBSSTART'))
             if obs_start:
                 result = Time(mjdref, obs_start, format='mjd', scale='tt')
-            self._logger.error(f'result {result} mjdref {mjdref} obsstart {obs_start}')
         return result
 
     def _get_meta_release_value(self):
@@ -380,9 +374,7 @@ class BasicMapping(TelescopeMapping):
         return self._lookup(f'{self._prefix}/HEADER/CALIBRATION/FILE')
 
     def _get_time_exposure(self):
-        result = _to_float(self._lookup_for_links('HEADER/EXPOSURE/EXPOSURE'))
-        self._logger.error(result)
-        return result
+        return _to_float(self._lookup_for_links('HEADER/EXPOSURE/EXPOSURE'))
 
     def get_algorithm_name(self):
         result = 'lightcurve'
@@ -477,20 +469,12 @@ class BasicMapping(TelescopeMapping):
         for part in artifact.parts.values():
             for chunk in part.chunks:
                 if chunk.time is not None and chunk.time.axis is not None and chunk.time.axis.function is not None:
-                    if chunk.time.axis.range is not None:
-                        # time is range, not function, and at this time, the
-                        # blueprint will always set the function
-                        chunk.time.axis.function = None
                     chunk.time_axis = None
                 if (
                     chunk.energy is not None
                     and chunk.energy.axis is not None
                     and chunk.energy.axis.function is not None
                 ):
-                    if chunk.energy.axis.range is not None:
-                        # energy is range, not function, and at this time, the
-                        # blueprint will always set the function
-                        chunk.energy.axis.function = None
                     chunk.energy_axis = None
                 if chunk.position is not None and chunk.position_axis_1 is not None:
                     chunk.position_axis_1 = None
