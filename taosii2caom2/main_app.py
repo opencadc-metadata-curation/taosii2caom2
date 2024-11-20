@@ -175,18 +175,14 @@ class TaosiiValueRepair(ValueRepairCache):
         self._logger = logging.getLogger(self.__class__.__name__)
 
 
-class BasicMapping(TelescopeMapping):
+class NoWcsMapping(TelescopeMapping):
 
-    def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis=3, energy_axis=4
-    ):
+    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
         super().__init__(
             storage_name, headers=None, clients=clients, observable=observable, observation=observation, config=config
         )
         self._h5_file = h5file
         self._prefix = f'//{prefix}'
-        self._time_axis = time_axis
-        self._energy_axis = energy_axis
 
     def accumulate_blueprint(self, bp):
         """
@@ -253,9 +249,6 @@ class BasicMapping(TelescopeMapping):
                          the value from the HDF5 file]
         """
         super().accumulate_blueprint(bp)
-        bp.configure_time_axis(self._time_axis)
-        bp.configure_energy_axis(self._energy_axis)
-
         bp.set('Observation.intent', self.get_observation_intent(0))
         bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
 
@@ -289,54 +282,6 @@ class BasicMapping(TelescopeMapping):
         bp.set('Plane.calibrationLevel', CalibrationLevel.CALIBRATED)
 
         bp.set('Artifact.productType', self.get_product_type())
-
-        bp.set('Chunk.time.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
-        bp.set(
-            'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
-        )
-        bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
-        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
-        bp.set('Chunk.time.exposure', ([f'{self._prefix}/HEADER/EXPOSURE/EXPOSURE'], None))
-        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/HEADER/COORDSYS/MJDREF'], None))
-        # JJK 30-01-23
-        # timesys is UTC.
-        # bp.set('Chunk.time.timesys', 'UTC')
-
-        # SGw - 23-07-22
-        # Detector energy information from Figure 4 here:
-        # https://www.spiedigitallibrary.org/proceedings/Download?urlId=10.1117%2F12.2561204
-        #
-        # This reference says there is no filter:
-        # https://www.spiedigitallibrary.org/conference-proceedings-of-spie/9908/1/
-        # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
-        #
-        # FWHM => 430nm to 830nm
-        #
-        # JJK 30-01-23
-        # resolving power: R == Lambda/Delta_Lambda
-        # Where Lambda is the wavelength at the middle of the bandpass and Delta_Lambda is width.  In this case, Lambda
-        # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
-        # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
-        #
-        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
-        bp.set(
-            'Chunk.energy.axis.function.delta',
-            ([f'/HEADER/WCS/CD({self._energy_axis - 1}:{self._energy_axis - 1})'], None),
-        )
-        bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
-        bp.set('Chunk.energy.specsys', 'TOPOCENT')
-        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
-        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
-        bp.set('Chunk.energy.bandpassName', 'CLEAR')
-        bp.set('Chunk.energy.resolvingPower', 1.575)
 
     def _get_data_release(self):
         result = None
@@ -372,9 +317,6 @@ class BasicMapping(TelescopeMapping):
 
     def _get_provenance_inputs(self):
         return self._lookup(f'{self._prefix}/HEADER/CALIBRATION/FILE')
-
-    def _get_time_exposure(self):
-        return _to_float(self._lookup_for_links('HEADER/EXPOSURE/EXPOSURE'))
 
     def get_algorithm_name(self):
         result = 'lightcurve'
@@ -482,23 +424,104 @@ class BasicMapping(TelescopeMapping):
         self._logger.debug('End _update_artifact')
 
 
-class DomeflatMapping(BasicMapping):
+class BasicMapping(NoWcsMapping):
+
+    def __init__(
+        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis=3, energy_axis=4
+    ):
+        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
+        self._time_axis = time_axis
+        self._energy_axis = energy_axis
+
+    def accumulate_blueprint(self, bp):
+        super().accumulate_blueprint(bp)
+        bp.configure_time_axis(self._time_axis)
+        bp.configure_energy_axis(self._energy_axis)
+
+        bp.set('Chunk.time.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
+        bp.set(
+            'Chunk.time.axis.function.delta', ([f'/HEADER/WCS/CD({self._time_axis - 1}:{self._time_axis - 1})'], None)
+        )
+        bp.set('Chunk.time.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
+        bp.set('Chunk.time.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.timesys', ([f'/HEADER/WCS/CTYPE({self._time_axis - 1})'], None))
+        bp.set('Chunk.time.exposure', ([f'{self._prefix}/HEADER/EXPOSURE/EXPOSURE'], None))
+        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/HEADER/COORDSYS/MJDREF'], None))
+        # JJK 30-01-23
+        # timesys is UTC.
+        # bp.set('Chunk.time.timesys', 'UTC')
+
+        # SGw - 23-07-22
+        # Detector energy information from Figure 4 here:
+        # https://www.spiedigitallibrary.org/proceedings/Download?urlId=10.1117%2F12.2561204
+        #
+        # This reference says there is no filter:
+        # https://www.spiedigitallibrary.org/conference-proceedings-of-spie/9908/1/
+        # The-prototype-cameras-for-trans-Neptunian-automatic-occultation-survey/10.1117/12.2232062.full
+        #
+        # FWHM => 430nm to 830nm
+        #
+        # JJK 30-01-23
+        # resolving power: R == Lambda/Delta_Lambda
+        # Where Lambda is the wavelength at the middle of the bandpass and Delta_Lambda is width.  In this case, Lambda
+        # = (8.3E-7 + 4.3E-7)/2 and Delta_lambda = 8.3E-7 - 4.3E-7
+        # So+   (8.3+4.3)/(2*(8.3-4.3)) = 1.575
+        #
+        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
+        bp.set(
+            'Chunk.energy.axis.function.delta',
+            ([f'/HEADER/WCS/CD({self._energy_axis - 1}:{self._energy_axis - 1})'], None),
+        )
+        bp.set('Chunk.energy.axis.function.refCoord.pix', ([f'/HEADER/WCS/CRPIX({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.function.refCoord.val', ([f'/HEADER/WCS/CRVAL({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.ctype', ([f'/HEADER/WCS/CTYPE({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.axis.axis.cunit', ([f'/HEADER/WCS/CUNIT({self._energy_axis - 1})'], None))
+        bp.set('Chunk.energy.specsys', 'TOPOCENT')
+        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
+        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
+        bp.set('Chunk.energy.bandpassName', 'CLEAR')
+        bp.set('Chunk.energy.resolvingPower', 1.575)
+
+    def _get_time_exposure(self):
+        return _to_float(self._lookup_for_links('HEADER/EXPOSURE/EXPOSURE'))
+
+
+class DomeflatMapping(NoWcsMapping):
 
     def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
         super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
+        bp.configure_time_axis(1)
+        bp.configure_energy_axis(2)
+
+        bp.set('Chunk.time.axis.axis.ctype', 'TIME')
+        bp.set('Chunk.time.axis.axis.cunit', 'd')
         bp.set('Chunk.time.axis.range.start.pix', 0.5)
         bp.set('Chunk.time.axis.range.end.pix', 1.5)
         bp.set('Chunk.time.axis.range.start.val', ([f'{self._prefix}/HEADER/EXPOSURE/OBSSTART'], None))
         bp.set('Chunk.time.axis.range.end.val', ([f'{self._prefix}/HEADER/EXPOSURE/OBSEND'], None))
+        bp.set('Chunk.time.timesys', ([f'{self._prefix}/HEADER/COORDSYS/TIMESYS'], None))
+        bp.set('Chunk.time.exposure', ([f'{self._prefix}/HEADER/EXPOSURE/EXPOSURE'], None))
+        bp.set('Chunk.time.mjdref', ([f'{self._prefix}/HEADER/COORDSYS/MJDREF'], None))
 
+        bp.set('Chunk.energy.axis.axis.ctype', 'WAVE')
+        bp.set('Chunk.energy.axis.axis.cunit', 'm')
         bp.set('Chunk.energy.axis.range.start.pix', 0.5)
         # values from ML - 23-10-24
         bp.set('Chunk.energy.axis.range.start.val', 4.0e-7)
         bp.set('Chunk.energy.axis.range.end.pix', 1.5)
         bp.set('Chunk.energy.axis.range.end.val', 7.2e-7)
+        bp.set('Chunk.energy.specsys', 'TOPOCENT')
+        bp.set('Chunk.energy.ssysobs', 'TOPOCENT')
+        bp.set('Chunk.energy.ssyssrc', 'TOPOCENT')
+        bp.set('Chunk.energy.bandpassName', 'CLEAR')
+        bp.set('Chunk.energy.resolvingPower', 1.575)
 
 
 class Pointing(BasicMapping):
@@ -648,8 +671,10 @@ class Single(TargetSpectralTemporal):
         bp.set('Chunk.position.coordsys', ([f'{self._prefix}/HEADER/COORDSYS/RADECSYS'], None))
 
     def _get_naxis(self, index):
-        temp = self._lookup(f'{self._prefix}/SITE1/HEADER/PIXSEC/DATASEC')
         result = None
+        temp = self._lookup(f'{self._prefix}/SITE1/HEADER/PIXSEC/DATASEC')
+        if not temp:
+            temp = self._lookup(f'{self._prefix}/SITE_1/HEADER/PIXSEC/DATASEC')
         if temp:
             result = temp[index][1] - temp[index][0] + 1
         return result
@@ -869,7 +894,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
         Some file types require multiple mappings - e.g. images and lightcurves in the same file.
         """
         for key in ['IMAGE', 'LIGHTCURVE']:
-            for site in ['SITE1', 'SITE2', 'SITE3']:
+            for site in ['SITE1', 'SITE2', 'SITE3', 'SITE_1', 'SITE_2', 'SITE_3']:
                 # have to look for leaves - branches come back with None from _lookup
                 x = f'{key}/{site}/HEADER/WCS/CNAME'
                 found = _lookup(self._h5_file, x)
@@ -882,16 +907,6 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             prefix = 'IMAGE'
         if self._storage_name.is_lightcurve:
             self._mappings[prefix] = Lightcurve(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._observable,
-                self._observation,
-                self._config,
-                prefix,
-            )
-        elif self._storage_name.is_fullframe:
-            self._mappings[prefix] = FullFrameImage(
                 self._storage_name,
                 self._h5_file,
                 self._clients,
@@ -957,6 +972,16 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._config,
                 prefix,
             )
+        elif self._storage_name.is_fullframe:
+            self._mappings[prefix] = FullFrameImage(
+                self._storage_name,
+                self._h5_file,
+                self._clients,
+                self._observable,
+                self._observation,
+                self._config,
+                prefix,
+            )
         else:
             self._mappings[prefix] = Single(
                 self._storage_name,
@@ -991,8 +1016,12 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 break
 
         # figure out which mapping is in use, to provide the parser with the right extension names and indices
-        if len(extension_names) == 0:
-            raise CadcException(f'This should not happen')
+        if extension_names is None:
+            # bias, no site data
+            extension_names = []
+            extension_start_index = 0
+            extension_end_index = 0
+
         self._logger.info(f'Finding data in {extension_names} for {self._storage_name.file_name}')
 
         if len(self._extension_names) > 1 and 'LIGHTCURVE' in extension_names[0]:

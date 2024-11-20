@@ -82,6 +82,7 @@ def test_config():
     config.preview_scheme = PREVIEW_SCHEME
     config.scheme = SCHEME
     config.logging_level = 'INFO'
+    config.data_source_extensions = ['.h5']
     StorageName.collection = config.collection
     StorageName.scheme = config.scheme
     StorageName.preview_scheme = config.preview_scheme
