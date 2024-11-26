@@ -497,6 +497,8 @@ class DomeflatMapping(NoWcsMapping):
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
+        bp.set('Artifact.productType', ProductType.CALIBRATION)
+
         bp.configure_time_axis(1)
         bp.configure_energy_axis(2)
 
