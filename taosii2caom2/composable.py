@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -81,41 +81,26 @@ from caom2pipe.execute_composable import can_use_single_visit
 from caom2pipe.manage_composable import CadcException, Config
 from caom2pipe.name_builder_composable import GuessingBuilder
 from caom2pipe.reader_composable import Hdf5FileMetadataReader
-from caom2pipe.run_composable import run_by_todo, run_by_state
+from caom2pipe.run_composable import run_by_todo_runner_meta, run_by_state_runner_meta
 from taosii2caom2 import main_app, file2caom2_augmentation
 
 
-META_VISITORS = [file2caom2_augmentation]
-DATA_VISITORS = []
-
-
-def _common_init():
-    config = Config()
-    config.get_executors()
-    name_builder = GuessingBuilder(main_app.TAOSIIName)
-    if can_use_single_visit(config.task_types):
-        reader = Hdf5FileMetadataReader()
-    else:
-        raise CadcException(
-            f'taosii2caom2 does not work with these task type: {config.task_types}. Files must be local.'
-        )
-    return config, name_builder, reader
+META_VISITORS = []
+DATA_VISITORS = [file2caom2_augmentation]
 
 
 def _run():
     """
     Uses a todo file to identify the work to be done.
 
-    :return 0 if successful, -1 if there's any sort of failure. Return status
-        is used by airflow for task instance management and reporting.
+    :return 0 if successful, -1 if there's any sort of failure.
     """
-    config, name_builder, reader = _common_init()
-    return run_by_todo(
-        config=config,
-        name_builder=name_builder,
+    return run_by_todo_runner_meta(
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
-        metadata_reader=reader,
+        organizer_module_name='taosii2caom2.main_app',
+        organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
+        storage_name_ctor=main_app.TAOSIIName,
     )
 
 
@@ -132,16 +117,14 @@ def run():
 
 
 def _run_incremental():
-    """Uses a state file with a timestamp to control which entries will be
-    processed.
+    """Uses a state file with a timestamp to kick off time-boxed entry processing.
     """
-    config, name_builder, reader = _common_init()
-    return run_by_state(
-        config=config,
-        name_builder=name_builder,
+    return run_by_state_runner_meta(
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
-        metadata_reader=reader,
+        organizer_module_name='taosii2caom2.main_app',
+        organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
+        storage_name_ctor=main_app.TAOSIIName,
     )
 
 

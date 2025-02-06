@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -69,14 +69,12 @@
 import logging
 import traceback
 
-from datetime import datetime
 from os import unlink
-from os.path import basename, dirname, exists, join, realpath
+from os.path import dirname, exists, join, realpath
 
 from cadcdata import FileInfo
 from caom2.diff import get_differences
-from caom2pipe.manage_composable import read_obs_from_file, write_obs_to_file
-from caom2pipe.reader_composable import Hdf5FileMetadataReader
+from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, write_obs_to_file
 from taosii2caom2 import TAOSIIName
 from taosii2caom2 import file2caom2_augmentation
 
@@ -92,7 +90,7 @@ def pytest_generate_tests(metafunc):
     metafunc.parametrize('test_name', obs_id_list)
 
 
-def test_visitor(test_config, test_name):
+def test_visitor(test_config, test_name, tmp_path):
     """
     taos2_20240208T233041Z_cmos31_012.h5 is a full-frame image file
     taos2_20240208T233045Z_star987654321.h5 is a window mode image file
@@ -100,16 +98,17 @@ def test_visitor(test_config, test_name):
     taos2_20240208T232951Z_star987654321.h5 is a combined window mode image/lightcurve file
     taos2_20240209T191043Z_fsc_145.h5 is a finder scope image file
     """
-    storage_name = TAOSIIName(file_name=basename(test_name), source_names=[test_name])
+    test_config.change_working_directory(tmp_path.as_posix())
+    storage_name = TAOSIIName(source_names=[test_name])
     file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
     headers = []  # the default behaviour for "not a fits file"
-    metadata_reader = Hdf5FileMetadataReader()
-    metadata_reader._headers = {storage_name.file_uri: headers}
-    metadata_reader._file_info = {storage_name.file_uri: file_info}
+    storage_name.metadata = {storage_name.file_uri: headers}
+    storage_name.file_info = {storage_name.file_uri: file_info}
+    test_reporter = ExecutionReporter2(test_config)
     kwargs = {
         'storage_name': storage_name,
-        'metadata_reader': metadata_reader,
         'config': test_config,
+        'reporter': test_reporter,
     }
     expected_fqn = f'{dirname(test_name)}/{storage_name.file_id}.expected.xml'
     actual_fqn = expected_fqn.replace('expected', 'actual')

@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2020.                            (c) 2020.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -66,27 +66,91 @@
 # ***********************************************************************
 #
 
-import os
-from mock import patch
+from collections import deque
+from datetime import datetime, timedelta
+from mock import patch, PropertyMock
 
-from caom2pipe.manage_composable import Config, TaskType
+from caom2pipe.data_source_composable import RunnerMeta
+from caom2pipe.manage_composable import Config, State, TaskType
 from taosii2caom2 import composable, TAOSIIName
 
-
-def test_run_by_state():
-    pass
+TEST_TIME = datetime(year=2019, month=3, day=7, hour=19, minute=5)
 
 
-@patch('cadcutils.net.ws.WsCapabilities.get_access_url')
+@patch('caom2pipe.data_source_composable.QueryTimeBoxDataSourceRunnerMeta._initialize_end_dt')
+@patch(
+    'caom2pipe.data_source_composable.QueryTimeBoxDataSourceRunnerMeta.end_dt',
+    new_callable=PropertyMock(return_value=datetime(year=2019, month=3, day=7, hour=19, minute=5))
+)
+@patch('caom2pipe.client_composable.ClientCollection')
+@patch(
+    'caom2pipe.data_source_composable.QueryTimeBoxDataSourceRunnerMeta.get_time_box_work', autospec=True,
+)
+@patch('caom2pipe.execute_composable.OrganizeExecutesRunnerMeta.do_one')
+def test_run_incremental(
+    run_mock,
+    get_work_mock,
+    clients_mock,
+    end_time_mock,
+    initialize_end_dt_mock,
+    test_data_dir,
+    test_config,
+    tmp_path,
+    change_test_dir,
+):
+    test_obs_id = 'taos2_20240221T033329Z_star987654321_lcv'
+    test_f_name = f'{test_obs_id}.h5'
+    test_config.change_working_directory(tmp_path)
+    test_config.interval = 7200
+    test_config.task_types = [TaskType.MODIFY]
+    test_config.logging_level = 'DEBUG'
+
+    test_state_fqn = f'{tmp_path}/state.yml'
+    start_time = datetime(year=2019, month=3, day=3, hour=19, minute=5)
+    State.write_bookmark(test_state_fqn, test_config.bookmark, start_time)
+    Config.write_to_file(test_config)
+    run_mock.return_value = (0, None)
+
+    def _mock_query_listing(_, ignore_prev_exec_dt, ignore_exec_dt):
+        result = deque()
+        dt = TEST_TIME - timedelta(minutes=5)
+        storage_name = TAOSIIName(
+            source_names=[f'{test_data_dir}/2024/try2/taos2_20240221T033329Z_star987654321_lcv.h5']
+        )
+        result.append(RunnerMeta(storage_name, dt))
+        return result
+
+    get_work_mock.side_effect = _mock_query_listing
+
+    # execution
+    test_result = composable._run_incremental()
+    assert test_result == 0, 'mocking correct execution'
+    assert run_mock.called, 'should have been called'
+    args, _ = run_mock.call_args
+    test_storage = args[0]
+    assert isinstance(test_storage, TAOSIIName), type(test_storage)
+    assert test_storage.obs_id == test_obs_id, f'wrong obs id {test_storage.obs_id}'
+    assert test_storage.file_name == test_f_name, 'wrong file name'
+    assert test_storage.file_uri == f'cadc:TAOSII/{test_f_name}', 'wrong uri'
+    assert not clients_mock.data_client.get.called, 'data get'
+    assert not clients_mock.data_client.get_head.called, 'data get_head'
+    assert not clients_mock.data_client.info.called, 'data info'
+    assert not clients_mock.data_client.put.called, 'data put'
+    assert not clients_mock.data_client.remove.called, 'data remove'
+    assert not clients_mock.metadata_client.create.called, 'metadata create'
+    assert not clients_mock.metadata_client.read.called, 'metadata read'
+    assert not clients_mock.metadata_client.update.called, 'metadata update'
+    assert not clients_mock.metadata_client.delete.called, 'metadata delete'
+
+
+@patch('caom2pipe.client_composable.ClientCollection')
 @patch('caom2pipe.execute_composable.OrganizeExecutes.do_one')
-def test_run(run_mock, access_mock, test_config, tmp_path):
-    access_mock.return_value = 'https://localhost:2022'
+def test_run(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_f_id = 'test_file_id'
     test_f_name = f'{test_f_id}.hdf5'
     test_config.change_working_directory(tmp_path)
     test_config.proxy_file_name = 'test_proxy.pem'
-    test_config.logging_level = 'DEBUG'
-    test_config.task_types = [TaskType.INGEST, TaskType.MODIFY]
+    test_config.task_types = [TaskType.MODIFY]
 
     with open(test_config.proxy_fqn, 'w') as f:
         f.write('test content')
@@ -94,18 +158,12 @@ def test_run(run_mock, access_mock, test_config, tmp_path):
     with open(test_config.work_fqn, 'w') as f:
         f.write(test_f_name)
 
-    cwd = os.getcwd()
-    try:
-        os.chdir(tmp_path)
-        Config.write_to_file(test_config)
+    Config.write_to_file(test_config)
 
-        # execution
-        composable._run()
-        assert run_mock.called, 'should have been called'
-        args, kwargs = run_mock.call_args
-        test_storage = args[0]
-        assert isinstance(test_storage, TAOSIIName), type(test_storage)
-        assert test_storage.obs_id == test_f_id, 'wrong obs id'
-        assert test_storage.file_name == test_f_name, 'wrong file name'
-    finally:
-        os.chdir(cwd)
+    composable._run()
+    assert run_mock.called, 'should have been called'
+    args, _ = run_mock.call_args
+    test_storage = args[0]
+    assert isinstance(test_storage, TAOSIIName), type(test_storage)
+    assert test_storage.obs_id == test_f_id, 'wrong obs id'
+    assert test_storage.file_name == test_f_name, 'wrong file name'

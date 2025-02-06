@@ -2,7 +2,7 @@
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2020.                            (c) 2020.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -142,18 +142,20 @@ import h5py
 import logging
 
 from collections import defaultdict
-from os.path import basename
+from os.path import basename, join
 
-from astropy.time import Time, TimeDelta
+from astropy.time import Time
 
 from caom2 import CalibrationLevel, DataProductType, ProductType
 from caom2 import ObservationIntentType, ObservationURI, PlaneURI, TypedSet
 
 from caom2utils.caom2blueprint import Hdf5ObsBlueprint, Hdf5Parser
 from caom2utils.blueprints import _to_float
+from caom2utils.data_util import get_local_file_info
 from caom2pipe.astro_composable import build_ra_dec_as_deg
-from caom2pipe.caom_composable import Fits2caom2Visitor, TelescopeMapping
-from caom2pipe.manage_composable import CadcException, CaomName, StorageName, ValueRepairCache
+from caom2pipe.caom_composable import Fits2caom2VisitorRunnerMeta, TelescopeMapping2
+from caom2pipe.execute_composable import CaomExecuteRunnerMeta, OrganizeExecutesRunnerMeta, NoFheadVisitRunnerMeta
+from caom2pipe.manage_composable import CadcException, CaomName, StorageName, TaskType, ValueRepairCache
 
 
 __all__ = ['TAOSII2caom2Visitor', 'TAOSIIName']
@@ -175,11 +177,11 @@ class TaosiiValueRepair(ValueRepairCache):
         self._logger = logging.getLogger(self.__class__.__name__)
 
 
-class NoWcsMapping(TelescopeMapping):
+class NoWcsMapping(TelescopeMapping2):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
+    def __init__(self, storage_name, h5file, clients, reporter, observation, config, prefix):
         super().__init__(
-            storage_name, headers=None, clients=clients, observable=observable, observation=observation, config=config
+            storage_name, clients=clients, reporter=reporter, observation=observation, config=config
         )
         self._h5_file = h5file
         self._prefix = f'//{prefix}'
@@ -427,9 +429,9 @@ class NoWcsMapping(TelescopeMapping):
 class BasicMapping(NoWcsMapping):
 
     def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis=3, energy_axis=4
+        self, storage_name, h5file, clients, reporter, observation, config, prefix, time_axis=3, energy_axis=4
     ):
-        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
+        super().__init__(storage_name, h5file, clients, reporter, observation, config, prefix)
         self._time_axis = time_axis
         self._energy_axis = energy_axis
 
@@ -492,9 +494,6 @@ class BasicMapping(NoWcsMapping):
 
 class DomeflatMapping(NoWcsMapping):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
-        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
-
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Artifact.productType', ProductType.CALIBRATION)
@@ -528,21 +527,6 @@ class DomeflatMapping(NoWcsMapping):
 
 class Pointing(BasicMapping):
 
-    def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
-    ):
-        super().__init__(
-            storage_name,
-            h5file,
-            clients=clients,
-            observable=observable,
-            observation=observation,
-            config=config,
-            prefix=prefix,
-            time_axis=time_axis,
-            energy_axis=energy_axis,
-        )
-
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
         bp.set('Observation.telescope.geoLocationX', ([f'{self._prefix}/HEADER/LOCATION/OBSGEO(0)'], None))
@@ -555,12 +539,6 @@ class Pointing(BasicMapping):
 
 
 class TargetSpectralTemporal(Pointing):
-    def __init__(
-        self, storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
-    ):
-        super().__init__(
-            storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
-        )
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -610,7 +588,7 @@ class Single(TargetSpectralTemporal):
         storage_name,
         h5file,
         clients,
-        observable,
+        reporter,
         observation,
         config,
         prefix,
@@ -619,7 +597,7 @@ class Single(TargetSpectralTemporal):
         spatial_axis_1,
     ):
         super().__init__(
-            storage_name, h5file, clients, observable, observation, config, prefix, time_axis, energy_axis
+            storage_name, h5file, clients, reporter, observation, config, prefix, time_axis, energy_axis
         )
         # expect this to be 1 for 0, 1 CD matrix references
         #                   2 for 1, 2 CD matrix references
@@ -831,8 +809,6 @@ class Lightcurve(Single):
 
 
 class FSC(FullFrameImage):
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
-        super().__init__(storage_name, h5file, clients, observable, observation, config, prefix)
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
@@ -847,8 +823,9 @@ class TAOSIIName(StorageName):
 
     TAOSII_NAME_PATTERN = '*'
 
-    def __init__(self, file_name=None, source_names=None):
-        super().__init__(file_name=basename(file_name), source_names=source_names)
+    def __init__(self, source_names=None):
+        super().__init__(source_names=source_names)
+        self.descriptors = {}
 
     @property
     def is_fsc(self):
@@ -880,7 +857,169 @@ class TAOSIIName(StorageName):
         return TAOSIIName.remove_extensions(value)
 
 
-class TAOSII2caom2Visitor(Fits2caom2Visitor):
+class TAOSIINoFheadVisitRunnerMeta(NoFheadVisitRunnerMeta):
+    """Defines a pipeline step for all the operations that require access to the file on disk for metdata and data
+    operations. This is to support HDF5 operations, since at the time of writing, there is no --fhead metadata
+    retrieval option for HDF5 files.
+    """
+
+    def _set_preconditions(self):
+        """This is probably not the best approach, but I want to think about where the optimal location for the
+        retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
+        self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
+        for uri in self._storage_name.destination_uris:
+            local_fqn = join(self._working_dir, basename(uri))
+            if uri not in self._storage_name.file_info:
+                self._storage_name.file_info[uri] = get_local_file_info(local_fqn)
+            if uri not in self._storage_name.metadata:
+                self._storage_name.metadata[uri] = []
+                if uri not in self._storage_name._descriptors:
+                    # local import to limit exposure in Docker builds
+                    import h5py
+                    f_in = h5py.File(local_fqn)
+                    self._storage_name._descriptors[uri] = f_in
+                    self._storage_name._metadata[uri] = []
+        self._logger.debug('End _set_preconditions')
+
+
+class TAOSIINoFheadLocalVisitRunnerMeta(CaomExecuteRunnerMeta):
+
+    def __init__(self, clients, config, data_visitors, meta_visitors, reporter):
+        super().__init__(clients, config, meta_visitors, reporter)
+        self._data_visitors = data_visitors
+
+    def _set_preconditions(self):
+        """This is probably not the best approach, but I want to think about where the optimal location for the
+        retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
+        self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
+        for index, source_name in enumerate(self._storage_name.source_names):
+            uri = self._storage_name.destination_uris[index]
+            if uri not in self._storage_name.file_info:
+                self._storage_name.file_info[uri] = get_local_file_info(source_name)
+            if uri not in self._storage_name.metadata:
+                self._storage_name.metadata[uri] = []
+                if uri not in self._storage_name._descriptors:
+                    # local import to limit exposure in Docker builds
+                    import h5py
+                    f_in = h5py.File(source_name)
+                    self._storage_name._descriptors[uri] = f_in
+                    self._storage_name._metadata[uri] = []
+        self._logger.debug('End _set_preconditions')
+
+    def execute(self, context):
+        self._logger.debug('begin execute with the steps:')
+        self.storage_name = context.get('storage_name')
+
+        self._logger.debug('set the preconditions')
+        self._set_preconditions()
+
+        self._logger.debug('get the observation for the existing model')
+        self._caom2_read()
+
+        self._logger.debug('execute the meta visitors')
+        self._visit_meta()
+
+        self._logger.debug('execute the data visitors')
+        self._visit_data()
+
+        self._logger.debug('write the observation to disk for debugging')
+        self._write_model()
+
+        self._logger.debug('store the updated xml')
+        self._caom2_store()
+
+        self._logger.debug('End execute.')
+
+
+class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
+    """A class that extends OrganizeExecutes to handle the choosing of the correct executors based on the config.yml.
+    Attributes:
+        _needs_delete (bool): if True, the CAOM repo action is delete/create instead of update.
+        _reporter: An instance responsible for reporting the execution status.
+    Methods:
+        _choose():
+            Determines which descendants of CaomExecute to instantiate based on the content of the config.yml
+            file for an application.
+    """
+
+    def __init__(
+            self,
+            config,
+            meta_visitors,
+            data_visitors,
+            needs_delete=False,
+            store_transfer=None,
+            modify_transfer=None,
+            clients=None,
+            reporter=None,
+    ):
+        super().__init__(
+            config,
+            meta_visitors,
+            data_visitors,
+            store_transfer=store_transfer,
+            modify_transfer=modify_transfer,
+            clients=clients,
+            reporter=reporter,
+            needs_delete=needs_delete,
+        )
+
+    def _choose(self):
+        """The logic that decides which descendants of CaomExecute to instantiate. This is based on the content of
+        the config.yml file for an application.
+        """
+        super()._choose()
+        if self._needs_delete:
+            raise CadcException('No need identified for this yet.')
+
+        if TaskType.SCRAPE in self.task_types:
+            self._logger.debug(
+                f'Over-riding with executor CFHTNoFheadScrapeRunnerMeta for tasks {self.task_types}.'
+            )
+            self._executors = []
+            self._executors.append(
+                CFHTNoFheadScrapeRunnerMeta(
+                    self.config,
+                    self._meta_visitors,
+                    self._data_visitors,
+                    self._reporter,
+                )
+            )
+        elif TaskType.STORE in self.task_types:
+            raise CadcException('Do not expect a STORE task for this pipeline.')
+        elif TaskType.MODIFY in self.task_types:
+            if self.config.use_local_files:
+                self._logger.debug(
+                    f'Over-riding with executor TAOSIINoFheadLocalVisitRunnerMeta for tasks {self.task_types}.'
+                )
+                self._executors = []
+                self._executors.append(
+                    TAOSIINoFheadLocalVisitRunnerMeta(
+                        self._clients,
+                        self.config,
+                        self._data_visitors,
+                        self._meta_visitors,
+                        self._reporter,
+                    )
+                )
+            else:
+                self._logger.debug(
+                    f'Over-riding with executor TAOSIINoFheadVisitRunnerMeta for tasks {self.task_types}.'
+                )
+                self._executors = []
+                self._executors.append(
+                    TAOSIINoFheadVisitRunnerMeta(
+                        self._clients,
+                        self.config,
+                        self._data_visitors,
+                        self._meta_visitors,
+                        self._modify_transfer,
+                        self._reporter,
+                    )
+                )
+
+
+class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
 
     def __init__(self, observation, **kwargs):
         super().__init__(observation, **kwargs)
@@ -891,7 +1030,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
     def _get_blueprint(self, instantiated_class):
         return Hdf5ObsBlueprint(instantiated_class=instantiated_class)
 
-    def _get_mappings(self, headers, _):
+    def _get_mappings(self, dest_uri):
         """
         Some file types require multiple mappings - e.g. images and lightcurves in the same file.
         """
@@ -912,7 +1051,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -922,7 +1061,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 'IMAGE',
@@ -933,7 +1072,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                     self._storage_name,
                     self._h5_file,
                     self._clients,
-                    self._observable,
+                    self._reporter,
                     self._observation,
                     self._config,
                     'LIGHTCURVE',
@@ -943,7 +1082,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -955,7 +1094,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -969,7 +1108,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -979,7 +1118,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -989,7 +1128,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
                 self._storage_name,
                 self._h5_file,
                 self._clients,
-                self._observable,
+                self._reporter,
                 self._observation,
                 self._config,
                 prefix,
@@ -1002,7 +1141,7 @@ class TAOSII2caom2Visitor(Fits2caom2Visitor):
             self._logger.debug(f'Created mapping {mapping.__class__.__name__}.')
         return [mapping for mapping in self._mappings.values()]
 
-    def _get_parser(self, headers, blueprint, uri):
+    def _get_parser(self, blueprint, uri):
         self._logger.debug(f'Using an Hdf5Parser for {self._storage_name.file_uri}')
         extension_names = []
         for key in ['IMAGE', 'LIGHTCURVE']:
