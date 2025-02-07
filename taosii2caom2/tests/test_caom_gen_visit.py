@@ -66,6 +66,7 @@
 # ***********************************************************************
 #
 
+import h5py
 import logging
 import traceback
 
@@ -104,6 +105,7 @@ def test_visitor(test_config, test_name, tmp_path):
     headers = []  # the default behaviour for "not a fits file"
     storage_name.metadata = {storage_name.file_uri: headers}
     storage_name.file_info = {storage_name.file_uri: file_info}
+    storage_name.descriptors = {storage_name.file_uri: h5py.File(test_name)}
     test_reporter = ExecutionReporter2(test_config)
     kwargs = {
         'storage_name': storage_name,

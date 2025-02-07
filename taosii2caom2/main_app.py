@@ -179,11 +179,10 @@ class TaosiiValueRepair(ValueRepairCache):
 
 class NoWcsMapping(TelescopeMapping2):
 
-    def __init__(self, storage_name, h5file, clients, reporter, observation, config, prefix):
+    def __init__(self, storage_name, clients, reporter, observation, config, prefix):
         super().__init__(
             storage_name, clients=clients, reporter=reporter, observation=observation, config=config
         )
-        self._h5_file = h5file
         self._prefix = f'//{prefix}'
 
     def accumulate_blueprint(self, bp):
@@ -391,7 +390,7 @@ class NoWcsMapping(TelescopeMapping2):
         :things str - POSIX path breadcrumbs
         :fishing bool - True if doing a lookup for characterization, so set the logging level accordingly
         """
-        result = _lookup(self._h5_file, things)
+        result = _lookup(self._storage_name.descriptors.get(self._storage_name.file_uri), things)
         if result is None:
             msg = f'Could not find {things} in {self._storage_name.file_name}'
             if fishing:
@@ -429,9 +428,9 @@ class NoWcsMapping(TelescopeMapping2):
 class BasicMapping(NoWcsMapping):
 
     def __init__(
-        self, storage_name, h5file, clients, reporter, observation, config, prefix, time_axis=3, energy_axis=4
+        self, storage_name, clients, reporter, observation, config, prefix, time_axis=3, energy_axis=4
     ):
-        super().__init__(storage_name, h5file, clients, reporter, observation, config, prefix)
+        super().__init__(storage_name, clients, reporter, observation, config, prefix)
         self._time_axis = time_axis
         self._energy_axis = energy_axis
 
@@ -586,7 +585,6 @@ class Single(TargetSpectralTemporal):
     def __init__(
         self,
         storage_name,
-        h5file,
         clients,
         reporter,
         observation,
@@ -597,7 +595,7 @@ class Single(TargetSpectralTemporal):
         spatial_axis_1,
     ):
         super().__init__(
-            storage_name, h5file, clients, reporter, observation, config, prefix, time_axis, energy_axis
+            storage_name, clients, reporter, observation, config, prefix, time_axis, energy_axis
         )
         # expect this to be 1 for 0, 1 CD matrix references
         #                   2 for 1, 2 CD matrix references
@@ -667,12 +665,11 @@ class Single(TargetSpectralTemporal):
 
 
 class FullFrameImage(Single):
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
+    def __init__(self, storage_name, clients, reporter, observation, config, prefix):
         super().__init__(
             storage_name,
-            h5file,
             clients,
-            observable,
+            reporter,
             observation,
             config,
             prefix,
@@ -716,12 +713,11 @@ class FullFrameImage(Single):
 
 class TimeseriesMapping(Single):
 
-    def __init__(self, storage_name, h5file, clients, observable, observation, config, prefix):
+    def __init__(self, storage_name, clients, reporter, observation, config, prefix):
         super().__init__(
             storage_name,
-            h5file,
             clients,
-            observable,
+            reporter,
             observation,
             config,
             prefix,
@@ -739,9 +735,8 @@ class Lightcurve(Single):
     def __init__(
         self,
         storage_name,
-        h5file,
         clients,
-        observable,
+        reporter,
         observation,
         config,
         prefix,
@@ -751,9 +746,8 @@ class Lightcurve(Single):
     ):
         super().__init__(
             storage_name,
-            h5file,
             clients,
-            observable,
+            reporter,
             observation,
             config,
             prefix,
@@ -873,11 +867,9 @@ class TAOSIINoFheadVisitRunnerMeta(NoFheadVisitRunnerMeta):
                 self._storage_name.file_info[uri] = get_local_file_info(local_fqn)
             if uri not in self._storage_name.metadata:
                 self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name._descriptors:
-                    # local import to limit exposure in Docker builds
-                    import h5py
+                if uri not in self._storage_name.descriptors:
                     f_in = h5py.File(local_fqn)
-                    self._storage_name._descriptors[uri] = f_in
+                    self._storage_name.descriptors[uri] = f_in
                     self._storage_name._metadata[uri] = []
         self._logger.debug('End _set_preconditions')
 
@@ -898,11 +890,9 @@ class TAOSIINoFheadLocalVisitRunnerMeta(CaomExecuteRunnerMeta):
                 self._storage_name.file_info[uri] = get_local_file_info(source_name)
             if uri not in self._storage_name.metadata:
                 self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name._descriptors:
-                    # local import to limit exposure in Docker builds
-                    import h5py
+                if uri not in self._storage_name.descriptors:
                     f_in = h5py.File(source_name)
-                    self._storage_name._descriptors[uri] = f_in
+                    self._storage_name.descriptors[uri] = f_in
                     self._storage_name._metadata[uri] = []
         self._logger.debug('End _set_preconditions')
 
@@ -1023,7 +1013,6 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
 
     def __init__(self, observation, **kwargs):
         super().__init__(observation, **kwargs)
-        self._h5_file = h5py.File(self._storage_name.source_names[0])
         self._mappings = {}
         self._extension_names = defaultdict(list)
 
@@ -1038,7 +1027,7 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             for site in ['SITE1', 'SITE2', 'SITE3', 'SITE_1', 'SITE_2', 'SITE_3']:
                 # have to look for leaves - branches come back with None from _lookup
                 x = f'{key}/{site}/HEADER/WCS/CNAME'
-                found = _lookup(self._h5_file, x)
+                found = _lookup(self._storage_name.descriptors.get(self._storage_name.file_uri), x)
                 if found is not None:
                     self._extension_names[key].append(f'{key}/{site}')
 
@@ -1048,39 +1037,20 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             prefix = 'IMAGE'
         if self._storage_name.is_lightcurve:
             self._mappings[prefix] = Lightcurve(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._reporter,
-                self._observation,
-                self._config,
-                prefix,
+                self._storage_name, self._clients, self._reporter, self._observation, self._config, prefix
             )
         elif '_star' in self._storage_name.file_name:
             self._mappings['IMAGE'] = TimeseriesMapping(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._reporter,
-                self._observation,
-                self._config,
-                'IMAGE',
+                self._storage_name, self._clients, self._reporter, self._observation, self._config, 'IMAGE'
             )
             if len(self._extension_names) > 1:
                 # for the files that have images and lightcurves together again
                 self._mappings['LIGHTCURVE'] = Lightcurve(
-                    self._storage_name,
-                    self._h5_file,
-                    self._clients,
-                    self._reporter,
-                    self._observation,
-                    self._config,
-                    'LIGHTCURVE',
+                    self._storage_name, self._clients, self._reporter, self._observation, self._config, 'LIGHTCURVE'
                 )
         elif '_focus' in self._storage_name.file_name or '_point' in self._storage_name.file_name:
             self._mappings[prefix] = Pointing(
                 self._storage_name,
-                self._h5_file,
                 self._clients,
                 self._reporter,
                 self._observation,
@@ -1091,13 +1061,7 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             )
         elif self._storage_name.is_fsc:
             self._mappings[prefix] = FSC(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._reporter,
-                self._observation,
-                self._config,
-                prefix,
+                self._storage_name, self._clients, self._reporter, self._observation, self._config, prefix
             )
         elif (
             '_domeflat' in self._storage_name.file_name
@@ -1105,28 +1069,15 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             or '_bias' in self._storage_name.file_name
         ):
             self._mappings[prefix] = DomeflatMapping(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._reporter,
-                self._observation,
-                self._config,
-                prefix,
+                self._storage_name, self._clients, self._reporter, self._observation, self._config, prefix
             )
         elif self._storage_name.is_fullframe:
             self._mappings[prefix] = FullFrameImage(
-                self._storage_name,
-                self._h5_file,
-                self._clients,
-                self._reporter,
-                self._observation,
-                self._config,
-                prefix,
+                self._storage_name, self._clients, self._reporter, self._observation, self._config, prefix
             )
         else:
             self._mappings[prefix] = Single(
                 self._storage_name,
-                self._h5_file,
                 self._clients,
                 self._reporter,
                 self._observation,
@@ -1176,7 +1127,7 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
         return Hdf5Parser(
             blueprint,
             uri,
-            self._h5_file,
+            self._storage_name.descriptors.get(self._storage_name.file_uri),
             extension_names=extension_names,
             extension_start_index=extension_start_index,
             extension_end_index=extension_end_index,
