@@ -61,37 +61,42 @@
 #  <http://www.gnu.org/licenses/>.      pas le cas, consultez :
 #                                       <http://www.gnu.org/licenses/>.
 #
-#  $Revision: 4 $
+#  : 4 $
 #
 # ***********************************************************************
 #
 
-from taosii2caom2 import TAOSIIName
+from os.path import dirname, join, realpath
+
+from caom2pipe.manage_composable import Config, StorageName
+import pytest
+
+COLLECTION = 'TAOSII'
+SCHEME = 'cadc'
+PREVIEW_SCHEME = 'cadc'
 
 
-def test_is_valid():
-    assert TAOSIIName(['20190805T024026_f060_s00001']).is_valid()
+@pytest.fixture()
+def test_config():
+    config = Config()
+    config.collection = COLLECTION
+    config.preview_scheme = PREVIEW_SCHEME
+    config.scheme = SCHEME
+    config.logging_level = 'INFO'
+    config.data_source_extensions = ['.h5']
+    StorageName.collection = config.collection
+    StorageName.scheme = config.scheme
+    StorageName.preview_scheme = config.preview_scheme
+    return config
 
 
-def test_storage_name(test_config):
-    for test_f_id in [
-        'taos2_20240208T232951Z_star987654321',
-        'taos2_20240208T233034Z_star987654321_lcv',
-        'taos2_20240208T233041Z_cmos31_012',
-        'taos2_20240208T233045Z_star987654321',
-        'taos2_20240209T191043Z_fsc_145',
-    ]:
-        for prefix in ['', '/data/', 'cadc:TAOSII/']:
-            test_f_name = f'{test_f_id}.h5'
-            source_names = [f'{prefix}{test_f_id}.h5']
-            test_subject = TAOSIIName(source_names=source_names)
-            assert test_subject.obs_id == test_f_id, f'wrong obs id {test_subject.obs_id}'
-            assert test_subject.file_name == test_f_name, 'wrong file name'
-            assert test_subject.product_id == test_f_id, 'wrong product id'
-            assert (
-                test_subject.destination_uris[0] == f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
-            ), 'wrong destination uri'
-            if '_lcv' in test_f_id:
-                assert test_subject.is_lightcurve, f'lightcurve {test_f_id}'
-            else:
-                assert not test_subject.is_lightcurve, f'not lightcurve {test_f_id}'
+@pytest.fixture()
+def test_data_dir():
+    this_dir = dirname(realpath(__file__))
+    fqn = join(this_dir, 'data')
+    return fqn
+
+
+@pytest.fixture()
+def change_test_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)

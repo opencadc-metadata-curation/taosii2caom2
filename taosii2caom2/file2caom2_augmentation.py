@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -62,74 +61,13 @@
 #  <http://www.gnu.org/licenses/>.      pas le cas, consultez :
 #                                       <http://www.gnu.org/licenses/>.
 #
-#  $Revision: 4 $
+#  : 4 $
 #
 # ***********************************************************************
 #
 
-from taosii2caom2 import main_app, TAOSIIName
-from taosii2caom2 import ARCHIVE
-from caom2pipe import manage_composable as mc
-
-import glob
-import os
-import sys
-
-THIS_DIR = os.path.dirname(os.path.realpath(__file__))
-TEST_DATA_DIR = os.path.join(THIS_DIR, 'data')
-PLUGIN = os.path.join(os.path.dirname(THIS_DIR), 'main_app.py')
+from taosii2caom2.main_app import TAOSII2caom2Visitor
 
 
-def pytest_generate_tests(metafunc):
-    obs_id_list = glob.glob(f'{TEST_DATA_DIR}/*.h5')
-    metafunc.parametrize('test_name', obs_id_list)
-
-
-# def test_read():
-#     fqn = os.path.join(TEST_DATA_DIR, 'taosABC_dev00_starid00001.h5')
-#     from astropy.table import Table
-#     t = Table.read(fqn, format='hdf5')
-#     assert t is not None, 'result expected'
-
-
-# def test_read_2():
-#     fqn = os.path.join(TEST_DATA_DIR, '20190805T024026_f060_s00001.h5')
-#     from astropy.table import Table
-#     t = Table.read(fqn, format='hdf5')
-#     assert t is not None, 'result expected'
-
-
-def test_main_app(test_name):
-    storage_name = TAOSIIName(file_name=os.path.basename(test_name))
-    local = os.path.join(TEST_DATA_DIR, storage_name.file_name)
-    plugin = None
-    product_id = 'pixel'
-    output_file = '{}/{}.actual.xml'.format(TEST_DATA_DIR, storage_name.obs_id)
-    lineage = '{}/ad:TAOSII/{}'.format(product_id, storage_name.file_name)
-    sys.argv = \
-        (f'{main_app.APPLICATION} --no_validate --local {local} '
-         f'--plugin {plugin} --module {plugin} --observation TAOSII '
-         f'{storage_name.obs_id} -o {output_file} --lineage {lineage}').split()
-    print(sys.argv)
-    main_app.to_caom2()
-
-    expected_fqn = os.path.join(TEST_DATA_DIR,
-                                f'{storage_name.obs_id}.expected.xml')
-    compare_result = mc.compare_observations(output_file, expected_fqn)
-    if compare_result is not None:
-        raise AssertionError(compare_result)
-    # assert False  # cause I want to see logging messages
-
-
-def _get_file_info(archive, file_id):
-    return {'type': 'application/fits'}
-
-
-def _get_lineage(blank_name):
-    result = mc.get_lineage(ARCHIVE, blank_name.product_id,
-                            f'{blank_name.file_name}')
-    return result
-
-
-def _get_local(obs_id):
-    return f'{TEST_DATA_DIR}/{obs_id}.fits.header'
+def visit(observation, **kwargs):
+    return TAOSII2caom2Visitor(observation, **kwargs).visit()

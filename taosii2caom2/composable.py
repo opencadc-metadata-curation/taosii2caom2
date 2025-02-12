@@ -1,9 +1,8 @@
-# -*- coding: utf-8 -*-
 # ***********************************************************************
 # ******************  CANADIAN ASTRONOMY DATA CENTRE  *******************
 # *************  CENTRE CANADIEN DE DONNÉES ASTRONOMIQUES  **************
 #
-#  (c) 2019.                            (c) 2019.
+#  (c) 2025.                            (c) 2025.
 #  Government of Canada                 Gouvernement du Canada
 #  National Research Council            Conseil national de recherches
 #  Ottawa, Canada, K1A 0R6              Ottawa, Canada, K1A 0R6
@@ -68,39 +67,41 @@
 #
 
 """
-Implements the default entry point functions for the workflow 
-application.
+Implements the default entry point functions for the workflow application.
 
 'run' executes based on either provided lists of work, or files on disk.
-'run_by_state' executes incrementally, usually based on time-boxed 
-intervals.
+'run_incremental' executes incrementally, usually based on time-boxed intervals.
 """
 
 import logging
 import sys
 import traceback
 
-from caom2pipe import name_builder_composable as nbc
-from caom2pipe import run_composable as rc
-from taosii2caom2 import APPLICATION, TAOSIIName
+from caom2pipe.execute_composable import can_use_single_visit
+from caom2pipe.manage_composable import CadcException, Config
+from caom2pipe.name_builder_composable import GuessingBuilder
+from caom2pipe.reader_composable import Hdf5FileMetadataReader
+from caom2pipe.run_composable import run_by_todo_runner_meta, run_by_state_runner_meta
+from taosii2caom2 import main_app, file2caom2_augmentation
 
 
 META_VISITORS = []
-DATA_VISITORS = []
+DATA_VISITORS = [file2caom2_augmentation]
 
 
 def _run():
     """
     Uses a todo file to identify the work to be done.
 
-    :return 0 if successful, -1 if there's any sort of failure. Return status
-        is used by airflow for task instance management and reporting.
+    :return 0 if successful, -1 if there's any sort of failure.
     """
-    name_builder = nbc.FileNameBuilder(TAOSIIName)
-    return rc.run_by_todo(name_builder=name_builder,
-                          command_name=APPLICATION,
-                          meta_visitors=META_VISITORS, 
-                          data_visitors=DATA_VISITORS)
+    return run_by_todo_runner_meta(
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+        organizer_module_name='taosii2caom2.main_app',
+        organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
+        storage_name_ctor=main_app.TAOSIIName,
+    )
 
 
 def run():
@@ -115,21 +116,22 @@ def run():
         sys.exit(-1)
 
 
-def _run_state():
-    """Uses a state file with a timestamp to control which entries will be
-    processed.
+def _run_incremental():
+    """Uses a state file with a timestamp to kick off time-boxed entry processing.
     """
-    name_builder = nbc.FileNameBuilder(TAOSIIName)
-    return rc.run_by_state(name_builder=name_builder,
-                           command_name=APPLICATION,
-                           meta_visitors=META_VISITORS,
-                           data_visitors=DATA_VISITORS)
+    return run_by_state_runner_meta(
+        meta_visitors=META_VISITORS,
+        data_visitors=DATA_VISITORS,
+        organizer_module_name='taosii2caom2.main_app',
+        organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
+        storage_name_ctor=main_app.TAOSIIName,
+    )
 
 
-def run_state():
+def run_incremental():
     """Wraps _run_state in exception handling."""
     try:
-        _run_state()
+        _run_incremental()
         sys.exit(0)
     except Exception as e:
         logging.error(e)

@@ -66,32 +66,80 @@
 # ***********************************************************************
 #
 
+import h5py
+import logging
+import traceback
+
+from os import unlink
+from os.path import dirname, exists, join, realpath
+
+from cadcdata import FileInfo
+from caom2.diff import get_differences
+from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, write_obs_to_file
 from taosii2caom2 import TAOSIIName
+from taosii2caom2 import file2caom2_augmentation
+
+from glob import glob
+
+THIS_DIR = dirname(realpath(__file__))
+TEST_DATA_DIR = join(THIS_DIR, 'data')
+PLUGIN = join(dirname(THIS_DIR), 'main_app.py')
 
 
-def test_is_valid():
-    assert TAOSIIName(['20190805T024026_f060_s00001']).is_valid()
+def pytest_generate_tests(metafunc):
+    obs_id_list = glob(f'{TEST_DATA_DIR}/2024/try2/*.h5')
+    metafunc.parametrize('test_name', obs_id_list)
 
 
-def test_storage_name(test_config):
-    for test_f_id in [
-        'taos2_20240208T232951Z_star987654321',
-        'taos2_20240208T233034Z_star987654321_lcv',
-        'taos2_20240208T233041Z_cmos31_012',
-        'taos2_20240208T233045Z_star987654321',
-        'taos2_20240209T191043Z_fsc_145',
-    ]:
-        for prefix in ['', '/data/', 'cadc:TAOSII/']:
-            test_f_name = f'{test_f_id}.h5'
-            source_names = [f'{prefix}{test_f_id}.h5']
-            test_subject = TAOSIIName(source_names=source_names)
-            assert test_subject.obs_id == test_f_id, f'wrong obs id {test_subject.obs_id}'
-            assert test_subject.file_name == test_f_name, 'wrong file name'
-            assert test_subject.product_id == test_f_id, 'wrong product id'
-            assert (
-                test_subject.destination_uris[0] == f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
-            ), 'wrong destination uri'
-            if '_lcv' in test_f_id:
-                assert test_subject.is_lightcurve, f'lightcurve {test_f_id}'
+def test_visitor(test_config, test_name, tmp_path):
+    """
+    taos2_20240208T233041Z_cmos31_012.h5 is a full-frame image file
+    taos2_20240208T233045Z_star987654321.h5 is a window mode image file
+    taos2_20240208T233034Z_star987654321_lcv.h5 is a lightcurve file
+    taos2_20240208T232951Z_star987654321.h5 is a combined window mode image/lightcurve file
+    taos2_20240209T191043Z_fsc_145.h5 is a finder scope image file
+    """
+    test_config.change_working_directory(tmp_path.as_posix())
+    storage_name = TAOSIIName(source_names=[test_name])
+    file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
+    headers = []  # the default behaviour for "not a fits file"
+    storage_name.metadata = {storage_name.file_uri: headers}
+    storage_name.file_info = {storage_name.file_uri: file_info}
+    storage_name.descriptors = {storage_name.file_uri: h5py.File(test_name)}
+    test_reporter = ExecutionReporter2(test_config)
+    kwargs = {
+        'storage_name': storage_name,
+        'config': test_config,
+        'reporter': test_reporter,
+    }
+    expected_fqn = f'{dirname(test_name)}/{storage_name.file_id}.expected.xml'
+    actual_fqn = expected_fqn.replace('expected', 'actual')
+    if exists(actual_fqn):
+        unlink(actual_fqn)
+    observation = None
+    try:
+        observation = file2caom2_augmentation.visit(observation, **kwargs)
+    except Exception as e:
+        logging.error(e)
+        logging.error(traceback.format_exc())
+        assert False, f'{e}'
+
+    if exists(expected_fqn):
+        expected = read_obs_from_file(expected_fqn)
+        compare_result = get_differences(expected, observation)
+        if compare_result is not None:
+            if observation is None:
+                assert False, f'observation should not be None {test_name}'
             else:
-                assert not test_subject.is_lightcurve, f'not lightcurve {test_f_id}'
+                write_obs_to_file(observation, actual_fqn)
+                compare_text = '\n'.join([r for r in compare_result])
+                msg = f'Differences found in observation {expected.observation_id}\n{compare_text}'
+                raise AssertionError(msg)
+    else:
+        if observation:
+            write_obs_to_file(observation, actual_fqn)
+            assert False, 'no expected observation'
+        else:
+            assert False, 'no Observation to check against, and no expected Observation to check with.'
+    # assert False
+
