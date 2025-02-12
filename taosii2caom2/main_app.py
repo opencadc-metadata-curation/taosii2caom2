@@ -142,6 +142,8 @@ import h5py
 import logging
 
 from collections import defaultdict
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 from os.path import basename, join
 
 from astropy.time import Time
@@ -154,7 +156,9 @@ from caom2utils.blueprints import _to_float
 from caom2utils.data_util import get_local_file_info
 from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2VisitorRunnerMeta, TelescopeMapping2
-from caom2pipe.execute_composable import CaomExecuteRunnerMeta, OrganizeExecutesRunnerMeta, NoFheadVisitRunnerMeta
+from caom2pipe.execute_composable import (
+    CaomExecuteRunnerMeta, OrganizeExecutesRunnerMeta, NoFheadScrapeRunnerMeta, NoFheadVisitRunnerMeta
+)
 from caom2pipe.manage_composable import CadcException, CaomName, StorageName, TaskType, ValueRepairCache
 
 
@@ -290,8 +294,6 @@ class NoWcsMapping(TelescopeMapping2):
         if meta_release_value:
             # JJK, ML 23-10-24 - 5 year proprietary period for the data
             # JJK 29-10-24 - no metadata proprietary period
-            from datetime import datetime
-            from dateutil.relativedelta import relativedelta
             x = relativedelta(years=5)
             y = datetime.fromisoformat(meta_release_value)
             result = x + y
@@ -358,7 +360,7 @@ class NoWcsMapping(TelescopeMapping2):
                 'DOMEFLAT': ProductType.FLAT,
                 'SKYFLAT': ProductType.FLAT,
             }
-            result = x.get(obstype) if x.get(obstype) else ProductType.AUXILIARY
+            result = x.get(obstype, ProductType.AUXILIARY)
         return result
 
     def get_provenance_inputs(self):
@@ -921,6 +923,25 @@ class TAOSIINoFheadLocalVisitRunnerMeta(CaomExecuteRunnerMeta):
         self._logger.debug('End execute.')
 
 
+class TAOSIINoFheadScrapeVisitRunnerMeta(NoFheadScrapeRunnerMeta):
+
+    def _set_preconditions(self):
+        """This is probably not the best approach, but I want to think about where the optimal location for the
+        retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
+        self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
+        for index, source_name in enumerate(self._storage_name.source_names):
+            uri = self._storage_name.destination_uris[index]
+            if uri not in self._storage_name.file_info:
+                self._storage_name.file_info[uri] = get_local_file_info(source_name)
+            if uri not in self._storage_name.metadata:
+                self._storage_name.metadata[uri] = []
+                if uri not in self._storage_name.descriptors:
+                    f_in = h5py.File(source_name)
+                    self._storage_name.descriptors[uri] = f_in
+                    self._storage_name._metadata[uri] = []
+        self._logger.debug('End _set_preconditions')
+
+
 class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
     """A class that extends OrganizeExecutes to handle the choosing of the correct executors based on the config.yml.
     Attributes:
@@ -932,28 +953,6 @@ class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
             file for an application.
     """
 
-    def __init__(
-            self,
-            config,
-            meta_visitors,
-            data_visitors,
-            needs_delete=False,
-            store_transfer=None,
-            modify_transfer=None,
-            clients=None,
-            reporter=None,
-    ):
-        super().__init__(
-            config,
-            meta_visitors,
-            data_visitors,
-            store_transfer=store_transfer,
-            modify_transfer=modify_transfer,
-            clients=clients,
-            reporter=reporter,
-            needs_delete=needs_delete,
-        )
-
     def _choose(self):
         """The logic that decides which descendants of CaomExecute to instantiate. This is based on the content of
         the config.yml file for an application.
@@ -964,15 +963,12 @@ class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
 
         if TaskType.SCRAPE in self.task_types:
             self._logger.debug(
-                f'Over-riding with executor CFHTNoFheadScrapeRunnerMeta for tasks {self.task_types}.'
+                f'Over-riding with executor TAOSIINoFheadScrapeVisitRunnerMeta for tasks {self.task_types}.'
             )
             self._executors = []
             self._executors.append(
-                CFHTNoFheadScrapeRunnerMeta(
-                    self.config,
-                    self._meta_visitors,
-                    self._data_visitors,
-                    self._reporter,
+                TAOSIINoFheadScrapeVisitRunnerMeta(
+                    self.config, self._meta_visitors, self._data_visitors, self._reporter
                 )
             )
         elif TaskType.STORE in self.task_types:
