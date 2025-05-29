@@ -12,14 +12,15 @@ resource_id: ivo://cadc.nrc.ca/ams
 # operational value is ivo://cadc.nrc.ca/ams/blank
 # - queries entries on sc2.canfar.net
 # tap_id: ivo://cadc.nrc.ca/sc2tap
-tap_id: ivo://cadc.nrc.ca/ams/blank
+tap_id: ivo://cadc.nrc.ca/ams/shared
+storage_inventory_resource_id: ivo://cadc.nrc.ca/uvic/minoc
 # file that contains the list of entries to process
 todo_file_name: todo.txt
 # values True False
 # when True, the application will look for files with
 # .fits, .gz, .json endings as defining the work to be 
 # done.
-use_local_files: False
+use_local_files: True
 # values DEBUG INFO WARNING ERROR
 logging_level: INFO
 # values True False
@@ -79,4 +80,6 @@ interval: 600
 # - modify - create a footprint and previews for an existing CAOM model record
 # - pull - put a file retrieved from a URL
 task_types: 
+  - store
+  - ingest
   - modify
