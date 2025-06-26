@@ -157,7 +157,11 @@ from caom2utils.data_util import get_local_file_info
 from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2VisitorRunnerMeta, TelescopeMapping2
 from caom2pipe.execute_composable import (
-    CaomExecuteRunnerMeta, OrganizeExecutesRunnerMeta, NoFheadScrapeRunnerMeta, NoFheadVisitRunnerMeta
+    CaomExecuteRunnerMeta, 
+    OrganizeExecutesRunnerMeta,
+    NoFheadScrapeRunnerMeta, 
+    NoFheadStoreVisitRunnerMeta, 
+    NoFheadVisitRunnerMeta,
 )
 from caom2pipe.manage_composable import CadcException, CaomName, StorageName, TaskType, ValueRepairCache
 
@@ -942,6 +946,28 @@ class TAOSIINoFheadScrapeVisitRunnerMeta(NoFheadScrapeRunnerMeta):
         self._logger.debug('End _set_preconditions')
 
 
+class TAOSIINoFheadStoreVisitRunnerMeta(NoFheadStoreVisitRunnerMeta):
+
+    def __init__(self, clients, config, data_visitors, meta_visitors, reporter, store_transferrer):
+        super().__init__(config, clients, store_transferrer, meta_visitors, data_visitors, reporter)
+
+    def _set_preconditions(self):
+        """This is probably not the best approach, but I want to think about where the optimal location for the
+        retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
+        self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
+        for index, source_name in enumerate(self._storage_name.source_names):
+            uri = self._storage_name.destination_uris[index]
+            if uri not in self._storage_name.file_info:
+                self._storage_name.file_info[uri] = get_local_file_info(source_name)
+            if uri not in self._storage_name.metadata:
+                self._storage_name.metadata[uri] = []
+                if uri not in self._storage_name.descriptors:
+                    f_in = h5py.File(source_name)
+                    self._storage_name.descriptors[uri] = f_in
+                    self._storage_name._metadata[uri] = []
+        self._logger.debug('End _set_preconditions')
+
+
 class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
     """A class that extends OrganizeExecutes to handle the choosing of the correct executors based on the config.yml.
     Attributes:
@@ -972,7 +998,23 @@ class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
                 )
             )
         elif TaskType.STORE in self.task_types:
-            raise CadcException('Do not expect a STORE task for this pipeline.')
+            if self.config.use_local_files:
+                self._logger.debug(
+                    f'Over-riding with executor TAOSIINoFheadLocalVisitRunnerMeta for tasks {self.task_types}.'
+                )
+                self._executors = []
+                self._executors.append(
+                    TAOSIINoFheadStoreVisitRunnerMeta(
+                        self._clients,
+                        self.config,
+                        self._data_visitors,
+                        self._meta_visitors,
+                        self._reporter,
+                        self._store_transfer,
+                    )
+                )
+            else:
+                raise CadcException('Cannot store files without use_local_files set.')
         elif TaskType.MODIFY in self.task_types:
             if self.config.use_local_files:
                 self._logger.debug(
