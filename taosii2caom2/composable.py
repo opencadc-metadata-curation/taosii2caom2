@@ -77,10 +77,9 @@ import logging
 import sys
 import traceback
 
-from caom2pipe.execute_composable import can_use_single_visit
-from caom2pipe.manage_composable import CadcException, Config
-from caom2pipe.name_builder_composable import GuessingBuilder
-from caom2pipe.reader_composable import Hdf5FileMetadataReader
+from caom2pipe.client_composable import ClientCollection
+from caom2pipe.data_source_composable import LocalFilesDataSourceRunnerMeta
+from caom2pipe.manage_composable import Config, StorageName
 from caom2pipe.run_composable import run_by_todo_runner_meta, run_by_state_runner_meta
 from taosii2caom2 import main_app, file2caom2_augmentation
 
@@ -89,15 +88,34 @@ META_VISITORS = []
 DATA_VISITORS = [file2caom2_augmentation]
 
 
+def _common_init():
+    config = Config()
+    config.get_executors()
+    StorageName.collection = config.collection
+    StorageName.scheme = config.scheme
+    StorageName.preview_scheme = config.preview_scheme
+    StorageName.data_source_extensions = config.data_source_extensions
+    clients = ClientCollection(config)
+    sources = []
+    if config.use_local_files:
+        source = LocalFilesDataSourceRunnerMeta(config, clients.data_client, main_app.TAOSIIName)
+        sources.append(source)
+    return clients, config, sources
+
+
 def _run():
     """
     Uses a todo file to identify the work to be done.
 
     :return 0 if successful, -1 if there's any sort of failure.
     """
+    clients, config, sources = _common_init()
     return run_by_todo_runner_meta(
+        config=config,
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
+        sources=sources,
+        clients=clients,
         organizer_module_name='taosii2caom2.main_app',
         organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
         storage_name_ctor=main_app.TAOSIIName,
@@ -119,9 +137,13 @@ def run():
 def _run_incremental():
     """Uses a state file with a timestamp to kick off time-boxed entry processing.
     """
+    clients, config, sources = _common_init()
     return run_by_state_runner_meta(
+        config=config,
         meta_visitors=META_VISITORS,
         data_visitors=DATA_VISITORS,
+        clients=clients,
+        sources=sources,
         organizer_module_name='taosii2caom2.main_app',
         organizer_class_name='TAOSIIOrganizeExecutesRunnerMeta',
         storage_name_ctor=main_app.TAOSIIName,

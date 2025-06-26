@@ -971,9 +971,7 @@ class TAOSIIOrganizeExecutesRunnerMeta(OrganizeExecutesRunnerMeta):
                     self.config, self._meta_visitors, self._data_visitors, self._reporter
                 )
             )
-        elif TaskType.STORE in self.task_types:
-            raise CadcException('Do not expect a STORE task for this pipeline.')
-        elif TaskType.MODIFY in self.task_types:
+        elif TaskType.STORE in self.task_types or TaskType.MODIFY in self.task_types:
             if self.config.use_local_files:
                 self._logger.debug(
                     f'Over-riding with executor TAOSIINoFheadLocalVisitRunnerMeta for tasks {self.task_types}.'

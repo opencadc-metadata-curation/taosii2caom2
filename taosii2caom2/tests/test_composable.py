@@ -101,9 +101,13 @@ def test_run_incremental(
     test_obs_id = 'taos2_20240221T033329Z_star987654321_lcv'
     test_f_name = f'{test_obs_id}.h5'
     test_config.change_working_directory(tmp_path)
+    test_config.proxy_file_name = 'test_proxy.pem'
     test_config.interval = 7200
     test_config.task_types = [TaskType.MODIFY]
     test_config.logging_level = 'DEBUG'
+
+    with open(test_config.proxy_fqn, 'w') as f:
+        f.write('test content')
 
     test_state_fqn = f'{tmp_path}/state.yml'
     start_time = datetime(year=2019, month=3, day=3, hour=19, minute=5)
@@ -151,6 +155,32 @@ def test_run(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_config.change_working_directory(tmp_path)
     test_config.proxy_file_name = 'test_proxy.pem'
     test_config.task_types = [TaskType.MODIFY]
+
+    with open(test_config.proxy_fqn, 'w') as f:
+        f.write('test content')
+
+    with open(test_config.work_fqn, 'w') as f:
+        f.write(test_f_name)
+
+    Config.write_to_file(test_config)
+
+    composable._run()
+    assert run_mock.called, 'should have been called'
+    args, _ = run_mock.call_args
+    test_storage = args[0]
+    assert isinstance(test_storage, TAOSIIName), type(test_storage)
+    assert test_storage.obs_id == test_f_id, 'wrong obs id'
+    assert test_storage.file_name == test_f_name, 'wrong file name'
+
+
+@patch('caom2pipe.client_composable.ClientCollection')
+@patch('caom2pipe.execute_composable.OrganizeExecutes.do_one')
+def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
+    test_f_id = 'test_file_id'
+    test_f_name = f'{test_f_id}.hdf5'
+    test_config.change_working_directory(tmp_path)
+    test_config.proxy_file_name = 'test_proxy.pem'
+    test_config.task_types = [TaskType.STORE, TaskType.MODIFY]
 
     with open(test_config.proxy_fqn, 'w') as f:
         f.write('test content')
