@@ -98,7 +98,7 @@ def _common_init():
     clients = ClientCollection(config)
     sources = []
     if config.use_local_files:
-        source = LocalFilesDataSourceRunnerMeta(config, clients.data_client, main_app.TAOSIIName)
+        source = LocalFilesDataSourceRunnerMeta(config, clients.data_client, storage_name_ctor=main_app.TAOSIIName)
         sources.append(source)
     return clients, config, sources
 

@@ -176,24 +176,25 @@ def test_run(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
 @patch('caom2pipe.client_composable.ClientCollection')
 @patch('caom2pipe.execute_composable.OrganizeExecutes.do_one')
 def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
-    test_f_id = 'test_file_id'
-    test_f_name = f'{test_f_id}.hdf5'
     test_config.change_working_directory(tmp_path)
     test_config.proxy_file_name = 'test_proxy.pem'
     test_config.task_types = [TaskType.STORE, TaskType.MODIFY]
+    test_config.use_local_files = True
+    test_config.data_sources = ['/usr/src/app/taosii2caom2/int_test/test_files']
+    test_config.data_source_extensions = ['.h5']
+    test_config.store_modified_files_only = True
+    test_config.logging_level = 'DEBUG'
+    run_mock.return_value = (0, None)
 
     with open(test_config.proxy_fqn, 'w') as f:
         f.write('test content')
-
-    with open(test_config.work_fqn, 'w') as f:
-        f.write(test_f_name)
 
     Config.write_to_file(test_config)
 
     composable._run()
     assert run_mock.called, 'should have been called'
+    assert run_mock.call_count == 3, 'wrong number of calls'
     args, _ = run_mock.call_args
     test_storage = args[0]
     assert isinstance(test_storage, TAOSIIName), type(test_storage)
-    assert test_storage.obs_id == test_f_id, 'wrong obs id'
-    assert test_storage.file_name == test_f_name, 'wrong file name'
+    assert test_storage.obs_id == 'taos2_20241116T092321Z_star987654321', f'wrong obs id {test_storage}'
