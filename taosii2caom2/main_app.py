@@ -259,12 +259,7 @@ class NoWcsMapping(TelescopeMapping2):
         """
         super().accumulate_blueprint(bp)
         bp.set('Observation.intent', self.get_observation_intent(0))
-        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
-
         bp.set_default('Observation.metaRelease', self._get_meta_release_value())
-        bp.set('Plane.dataRelease', self._get_data_release())
-        bp.set('Plane.metaRelease', self._get_meta_release_value())
-
         bp.set('Observation.sequenceNumber', ([f'{self._prefix}/HEADER/RUN/RUN_SEQ'], None))
         bp.set('Observation.type', ([f'{self._prefix}/OBS/OBSTYPE'], 'IMAGE'))
         bp.set('Observation.instrument.name', 'get_instrument_name()')
@@ -274,16 +269,18 @@ class NoWcsMapping(TelescopeMapping2):
         bp.set('Observation.proposal.project', 'TAOS2')
         bp.set('Observation.proposal.title', 'Transneptunian Automated Occultation Survey')
         bp.set('Observation.proposal.keywords', set(['Kuiper Belt', 'Trans Neptunian Object', 'Occultations']))
-
         bp.set('Observation.telescope.name', self.get_telescope_name(0))
         # x, y, z = ac.get_location(31.041, -115.454, 2820)
         bp.set('Observation.telescope.geoLocationX', -2351818.5502637075)
         bp.set('Observation.telescope.geoLocationY', -4940894.8697881885)
         bp.set('Observation.telescope.geoLocationZ', 3271243.2086214763)
-
         # all the samples are calibrated
         bp.set('Observation.algorithm.name', self.get_algorithm_name())
         bp.set('DerivedObservation.members', {})
+
+        bp.set('Plane.dataRelease', self._get_data_release())
+        bp.set('Plane.metaRelease', self._get_meta_release_value())
+        bp.set('Plane.dataProductType', DataProductType.TIMESERIES)
         bp.set('Plane.provenance.name', (['//FILE/ORIGIN'], None))
         bp.set('Plane.provenance.version', self.get_provenance_version())
         bp.set('Plane.provenance.lastExecuted', (['//FILE/FILE_DATE'], None))
@@ -501,7 +498,6 @@ class DomeflatMapping(NoWcsMapping):
 
     def accumulate_blueprint(self, bp):
         super().accumulate_blueprint(bp)
-        bp.set('Artifact.productType', ProductType.CALIBRATION)
 
         bp.configure_time_axis(1)
         bp.configure_energy_axis(2)
@@ -1103,6 +1099,7 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             )
         elif (
             '_domeflat' in self._storage_name.file_name
+            or '_skyflat' in self._storage_name.file_name
             or '_dark' in self._storage_name.file_name
             or '_bias' in self._storage_name.file_name
         ):
