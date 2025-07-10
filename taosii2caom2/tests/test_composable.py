@@ -183,7 +183,7 @@ def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_
     test_config.data_sources = ['/usr/src/app/taosii2caom2/int_test/test_files']
     test_config.data_source_extensions = ['.h5']
     test_config.store_modified_files_only = True
-    test_config.logging_level = 'DEBUG'
+    test_config.logging_level = 'INFO'
     run_mock.return_value = (0, None)
 
     with open(test_config.proxy_fqn, 'w') as f:
@@ -197,4 +197,5 @@ def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_
     args, _ = run_mock.call_args
     test_storage = args[0]
     assert isinstance(test_storage, TAOSIIName), type(test_storage)
-    assert test_storage.obs_id == 'taos2_20241116T092321Z_star987654321', f'wrong obs id {test_storage}'
+    assert test_storage.obs_id == 'taos2_20240221T014139Z_star987654321', f'wrong obs id {test_storage}'
+
