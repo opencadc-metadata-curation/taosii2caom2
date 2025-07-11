@@ -358,8 +358,13 @@ class NoWcsMapping(TelescopeMapping2):
                 'POINTING_MODEL': ProductType.CALIBRATION,
                 'BIAS': ProductType.BIAS,
                 'DARK': ProductType.DARK,
-                'DOMEFLAT': ProductType.FLAT,
-                'SKYFLAT': ProductType.FLAT,
+                # avoid server error:
+                # "ERROR: invalid input: ... reason: XML failed schema validation: Error on line 43: 
+                # cvc-enumeration-valid: Value 'flat' is not facet-valid with respect to enumeration 
+                # '[science, calibration, auxiliary, info, preview, catalog, noise, weight, thumbnail]'. 
+                # It must be a value from the enumeration."
+                'DOMEFLAT': ProductType.CALIBRATION,
+                'SKYFLAT': ProductType.CALIBRATION,
             }
             result = x.get(obstype, ProductType.AUXILIARY)
         return result
