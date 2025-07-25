@@ -1104,7 +1104,6 @@ class TAOSII2caom2Visitor(Fits2caom2VisitorRunnerMeta):
             )
         elif (
             '_domeflat' in self._storage_name.file_name
-            or '_skyflat' in self._storage_name.file_name
             or '_dark' in self._storage_name.file_name
             or '_bias' in self._storage_name.file_name
         ):
