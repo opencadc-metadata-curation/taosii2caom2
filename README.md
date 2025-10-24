@@ -49,7 +49,7 @@ https://github.com/opencadc/collection2caom2/wiki/config.yml.
 1. Copy the file `config.yml` to the working directory. e.g.:
 
    ```
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/config/config.yml
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/config/config.yml
    ```
 1. In `config.yml`, set the value of `tap_id` to `ivo://cadc.nrc.ca/ams/shared`
 
@@ -72,8 +72,8 @@ https://github.com/opencadc/collection2caom2/wiki/config.yml.
 1. In the main branch of this repository, find the scripts directory, and copy the files `taosii_run.sh`  and `taosii_run_incremental.sh` to the working directory. e.g.:
 
    ```
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run.sh
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run_incremental.sh
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run.sh
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run_incremental.sh
    ```
 
 1. Ensure the scripts are executable:
