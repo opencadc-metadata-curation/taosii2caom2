@@ -35,10 +35,11 @@
       </caom2:provenance>
       <caom2:artifacts>
         <caom2:artifact caom2:id="3c5635c6-9148-42b2-967e-ec7e457a4a3d" caom2:metaProducer="taosii2caom2/0.1.0">
-          <caom2:uri>cadc:TAOSII/taos2_20250429T032413Z_cmos00_skyflat_001.h5</caom2:uri>
+          <caom2:uri>cadc:TAOSII/2025/04/29/20250429T032413Z/taos2_20250429T032413Z_cmos00_skyflat_001.h5</caom2:uri>
           <caom2:productType>calibration</caom2:productType>
           <caom2:releaseType>data</caom2:releaseType>
           <caom2:contentType>application/x-hdf5</caom2:contentType>
+          <caom2:contentLength>23496203</caom2:contentLength>
           <caom2:parts>
             <caom2:part caom2:id="72b4d775-4f74-41ee-b1f7-e63a68d7c981">
               <caom2:name>0</caom2:name>

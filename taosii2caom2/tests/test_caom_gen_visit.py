@@ -66,17 +66,16 @@
 # ***********************************************************************
 #
 
-import h5py
 import logging
 import traceback
 
 from os import unlink
 from os.path import dirname, exists, join, realpath
 
-from cadcdata import FileInfo
+from caom2utils.data_util import get_local_file_info
 from caom2.diff import get_differences
 from caom2pipe.manage_composable import ExecutionReporter2, read_obs_from_file, write_obs_to_file
-from taosii2caom2 import TAOSIIName
+from taosii2caom2 import set_storage_name_from_local_preconditions, TAOSIIName
 from taosii2caom2 import file2caom2_augmentation
 
 from glob import glob
@@ -99,13 +98,12 @@ def test_visitor(test_config, test_name, tmp_path):
     taos2_20240208T232951Z_star987654321.h5 is a combined window mode image/lightcurve file
     taos2_20240209T191043Z_fsc_145.h5 is a finder scope image file
     """
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
     test_config.change_working_directory(tmp_path.as_posix())
     storage_name = TAOSIIName(source_names=[test_name])
-    file_info = FileInfo(id=storage_name.file_uri, file_type='application/x-hdf5')
-    headers = []  # the default behaviour for "not a fits file"
-    storage_name.metadata = {storage_name.file_uri: headers}
-    storage_name.file_info = {storage_name.file_uri: file_info}
-    storage_name.descriptors = {storage_name.file_uri: h5py.File(test_name)}
+    storage_name.file_info[storage_name.file_uri] = get_local_file_info(test_name)
+    set_storage_name_from_local_preconditions(storage_name, test_name, logger)
     test_reporter = ExecutionReporter2(test_config)
     kwargs = {
         'storage_name': storage_name,

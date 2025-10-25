@@ -66,32 +66,48 @@
 # ***********************************************************************
 #
 
-from taosii2caom2 import TAOSIIName
+import logging
+from taosii2caom2 import set_storage_name_from_local_preconditions, TAOSIIName
 
 
 def test_is_valid():
     assert TAOSIIName(['20190805T024026_f060_s00001']).is_valid()
 
 
-def test_storage_name(test_config):
+def test_storage_name(test_config, test_data_dir):
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG)
     for test_f_id in [
-        'taos2_20240208T232951Z_star987654321',
-        'taos2_20240208T233034Z_star987654321_lcv',
-        'taos2_20240208T233041Z_cmos31_012',
-        'taos2_20240208T233045Z_star987654321',
-        'taos2_20240209T191043Z_fsc_145',
+        'taos2_20240221T014139Z_star987654321',
+        'taos2_20240221T033316Z_cmos31_012',
+        'taos2_20240221T033325Z_star987654321',
+        'taos2_20240221T033329Z_star987654321_lcv',
+        'taos2_20241116T092303Z_cmos31_bias_012',
+        'taos2_20241116T092310Z_cmos31_012',
+        'taos2_20241116T092321Z_star987654321',
+        'taos2_20241121T100428Z_fsc_145',
+        'taos2_20241121T100920Z_cmos31_012',
+        'taos2_20241121T101011Z_star987654321',
+        'taos2_20250429T032413Z_cmos00_skyflat_001',
     ]:
         for prefix in ['', '/data/', 'cadc:TAOSII/']:
             test_f_name = f'{test_f_id}.h5'
             source_names = [f'{prefix}{test_f_id}.h5']
             test_subject = TAOSIIName(source_names=source_names)
+            source_fqn = f'{test_data_dir}/2024/try2/{test_f_name}'
+            set_storage_name_from_local_preconditions(test_subject, source_fqn, logger)
             assert test_subject.obs_id == test_f_id, f'wrong obs id {test_subject.obs_id}'
             assert test_subject.file_name == test_f_name, 'wrong file name'
             assert test_subject.product_id == test_f_id, 'wrong product id'
-            assert (
-                test_subject.destination_uris[0] == f'{test_config.scheme}:{test_config.collection}/{test_f_name}'
-            ), 'wrong destination uri'
+            assert len(test_subject.destination_uris) == 1, 'destination uris not set'
             if '_lcv' in test_f_id:
                 assert test_subject.is_lightcurve, f'lightcurve {test_f_id}'
             else:
                 assert not test_subject.is_lightcurve, f'not lightcurve {test_f_id}'
+            if not (
+                test_subject.file_uri.startswith('cadc:TAOSII/2024/02/21/')
+                or test_subject.file_uri.startswith('cadc:TAOSII/2024/11/16/')
+                or test_subject.file_uri.startswith('cadc:TAOSII/2024/11/21/')
+                or test_subject.file_uri.startswith('cadc:TAOSII/2025/04/29/')
+            ):
+                assert False, f'wrong file_uri {test_subject.file_uri}'

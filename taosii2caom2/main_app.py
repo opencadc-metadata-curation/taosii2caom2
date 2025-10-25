@@ -157,16 +157,16 @@ from caom2utils.data_util import get_local_file_info
 from caom2pipe.astro_composable import build_ra_dec_as_deg
 from caom2pipe.caom_composable import Fits2caom2VisitorRunnerMeta, TelescopeMapping2
 from caom2pipe.execute_composable import (
-    CaomExecuteRunnerMeta, 
+    CaomExecuteRunnerMeta,
     OrganizeExecutesRunnerMeta,
-    NoFheadScrapeRunnerMeta, 
-    NoFheadStoreVisitRunnerMeta, 
+    NoFheadScrapeRunnerMeta,
+    NoFheadStoreVisitRunnerMeta,
     NoFheadVisitRunnerMeta,
 )
-from caom2pipe.manage_composable import CadcException, CaomName, StorageName, TaskType, ValueRepairCache
+from caom2pipe.manage_composable import CadcException, CaomName, make_datetime, StorageName, TaskType, ValueRepairCache
 
 
-__all__ = ['TAOSII2caom2Visitor', 'TAOSIIName']
+__all__ = ['set_storage_name_from_local_preconditions', 'TAOSII2caom2Visitor', 'TAOSIIName']
 
 
 class TaosiiValueRepair(ValueRepairCache):
@@ -359,9 +359,9 @@ class NoWcsMapping(TelescopeMapping2):
                 'BIAS': ProductType.BIAS,
                 'DARK': ProductType.DARK,
                 # avoid server error:
-                # "ERROR: invalid input: ... reason: XML failed schema validation: Error on line 43: 
-                # cvc-enumeration-valid: Value 'flat' is not facet-valid with respect to enumeration 
-                # '[science, calibration, auxiliary, info, preview, catalog, noise, weight, thumbnail]'. 
+                # "ERROR: invalid input: ... reason: XML failed schema validation: Error on line 43:
+                # cvc-enumeration-valid: Value 'flat' is not facet-valid with respect to enumeration
+                # '[science, calibration, auxiliary, info, preview, catalog, noise, weight, thumbnail]'.
                 # It must be a value from the enumeration."
                 'DOMEFLAT': ProductType.CALIBRATION,
                 'SKYFLAT': ProductType.CALIBRATION,
@@ -825,8 +825,21 @@ class TAOSIIName(StorageName):
     TAOSII_NAME_PATTERN = '*'
 
     def __init__(self, source_names=None):
-        super().__init__(source_names=source_names)
+        # the descriptors values get assigned in the _set_preconditions call the execute_composable.CaomExecutes
+        # specialization
+        self._file_uri = None
         self.descriptors = {}
+        super().__init__(source_names=source_names)
+
+    def __str__(self):
+        descriptor_keys = '\n                  '.join(ii for ii in self.descriptors.keys())
+        return super().__str__() + f'\n descriptor keys: {descriptor_keys}'
+
+    def _get_uri(self, file_name, scheme):
+        if self._file_uri:
+            return self._file_uri
+        else:
+            return super()._get_uri(file_name, scheme)
 
     @property
     def is_fsc(self):
@@ -858,6 +871,44 @@ class TAOSIIName(StorageName):
         return TAOSIIName.remove_extensions(value)
 
 
+def set_storage_name_from_local_preconditions(storage_name, source_fqn, logger):
+    """Retrieve FileInfo and header metadata into memory from files on disk. These files have extension names and
+    compression as expected and support by CADC's Storage Inventory system."""
+    logger.debug(f'Begin set_storage_name_from_local_preconditions for {source_fqn}')
+    f_name_bits = basename(source_fqn).split('_')
+    if len(f_name_bits) >= 3:
+        ts = make_datetime(f_name_bits[1].replace('Z', ''))
+        ts_path = f'{storage_name.scheme}:{storage_name.collection}/{ts.year}/{ts.month:02}/{ts.day:02}'
+        logger.debug(f'ts_path is {ts_path}')
+    else:
+        raise CadcException(f'Unexpected naming pattern for file name {source_fqn}.')
+
+    f_in = h5py.File(source_fqn)
+    if storage_name.is_lightcurve:
+        run_id = _lookup(f_in, '//LIGHTCURVE/HEADER/RUN/RUN_ID')
+    else:
+        run_id = _lookup(f_in, '//IMAGE/HEADER/RUN/RUN_ID')
+    if run_id is not None:
+        uri = f'{ts_path}/{run_id}/{basename(source_fqn)}'
+    else:
+        uri = f'{ts_path}/run_id/{basename(source_fqn)}'
+    logger.info(f'Built uri {uri} from {source_fqn}')
+
+    file_info = storage_name.file_info.get(storage_name.destination_uris[0])
+    storage_name._file_uri = uri
+    storage_name._destination_uris = []
+    storage_name._destination_uris.append(uri)
+
+    # now reset the storage name instance to use the destination URIs, because common code expects URIs
+    storage_name._file_info = {}
+    storage_name._metadata = {}
+    storage_name.descriptors = {}
+    storage_name._file_info[uri] = file_info
+    storage_name._metadata[uri] = []
+    storage_name.descriptors[uri] = f_in
+    logger.debug('End set_storage_name_from_local_preconditions')
+
+
 class TAOSIINoFheadVisitRunnerMeta(NoFheadVisitRunnerMeta):
     """Defines a pipeline step for all the operations that require access to the file on disk for metdata and data
     operations. This is to support HDF5 operations, since at the time of writing, there is no --fhead metadata
@@ -868,16 +919,8 @@ class TAOSIINoFheadVisitRunnerMeta(NoFheadVisitRunnerMeta):
         """This is probably not the best approach, but I want to think about where the optimal location for the
         retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
         self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
-        for uri in self._storage_name.destination_uris:
-            local_fqn = join(self._working_dir, basename(uri))
-            if uri not in self._storage_name.file_info:
-                self._storage_name.file_info[uri] = get_local_file_info(local_fqn)
-            if uri not in self._storage_name.metadata:
-                self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name.descriptors:
-                    f_in = h5py.File(local_fqn)
-                    self._storage_name.descriptors[uri] = f_in
-                    self._storage_name._metadata[uri] = []
+        local_fqn = join(self._working_dir, self._storage_name.file_name)
+        set_storage_name_from_local_preconditions(self._storage_name, local_fqn, self._logger)
         self._logger.debug('End _set_preconditions')
 
 
@@ -892,15 +935,7 @@ class TAOSIINoFheadLocalVisitRunnerMeta(CaomExecuteRunnerMeta):
         retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
         self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
         for index, source_name in enumerate(self._storage_name.source_names):
-            uri = self._storage_name.destination_uris[index]
-            if uri not in self._storage_name.file_info:
-                self._storage_name.file_info[uri] = get_local_file_info(source_name)
-            if uri not in self._storage_name.metadata:
-                self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name.descriptors:
-                    f_in = h5py.File(source_name)
-                    self._storage_name.descriptors[uri] = f_in
-                    self._storage_name._metadata[uri] = []
+            set_storage_name_from_local_preconditions(self._storage_name, source_name, self._logger)
         self._logger.debug('End _set_preconditions')
 
     def execute(self, context):
@@ -934,16 +969,8 @@ class TAOSIINoFheadScrapeVisitRunnerMeta(NoFheadScrapeRunnerMeta):
         """This is probably not the best approach, but I want to think about where the optimal location for the
         retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
         self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
-        for index, source_name in enumerate(self._storage_name.source_names):
-            uri = self._storage_name.destination_uris[index]
-            if uri not in self._storage_name.file_info:
-                self._storage_name.file_info[uri] = get_local_file_info(source_name)
-            if uri not in self._storage_name.metadata:
-                self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name.descriptors:
-                    f_in = h5py.File(source_name)
-                    self._storage_name.descriptors[uri] = f_in
-                    self._storage_name._metadata[uri] = []
+        for source_name in self._storage_name.source_names:
+            set_storage_name_from_local_preconditions(self._storage_name, source_name, self._logger)
         self._logger.debug('End _set_preconditions')
 
 
@@ -956,16 +983,8 @@ class TAOSIINoFheadStoreVisitRunnerMeta(NoFheadStoreVisitRunnerMeta):
         """This is probably not the best approach, but I want to think about where the optimal location for the
         retrieve_file_info and retrieve_headers methods will be long-term. So, for the moment, use them here."""
         self._logger.debug(f'Begin _set_preconditions for {self._storage_name.file_name}')
-        for index, source_name in enumerate(self._storage_name.source_names):
-            uri = self._storage_name.destination_uris[index]
-            if uri not in self._storage_name.file_info:
-                self._storage_name.file_info[uri] = get_local_file_info(source_name)
-            if uri not in self._storage_name.metadata:
-                self._storage_name.metadata[uri] = []
-                if uri not in self._storage_name.descriptors:
-                    f_in = h5py.File(source_name)
-                    self._storage_name.descriptors[uri] = f_in
-                    self._storage_name._metadata[uri] = []
+        for source_name in self._storage_name.source_names:
+            set_storage_name_from_local_preconditions(self._storage_name, source_name, self._logger)
         self._logger.debug('End _set_preconditions')
 
 
