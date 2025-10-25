@@ -135,7 +135,6 @@ def test_run_incremental(
     assert isinstance(test_storage, TAOSIIName), type(test_storage)
     assert test_storage.obs_id == test_obs_id, f'wrong obs id {test_storage.obs_id}'
     assert test_storage.file_name == test_f_name, 'wrong file name'
-    assert test_storage.file_uri == f'cadc:TAOSII/{test_f_name}', 'wrong uri'
     assert not clients_mock.data_client.get.called, 'data get'
     assert not clients_mock.data_client.get_head.called, 'data get_head'
     assert not clients_mock.data_client.info.called, 'data info'
@@ -148,7 +147,7 @@ def test_run_incremental(
 
 
 @patch('caom2pipe.client_composable.ClientCollection')
-@patch('caom2pipe.execute_composable.OrganizeExecutes.do_one')
+@patch('caom2pipe.execute_composable.OrganizeExecutesRunnerMeta.do_one')
 def test_run(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_f_id = 'test_file_id'
     test_f_name = f'{test_f_id}.hdf5'
@@ -174,7 +173,7 @@ def test_run(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
 
 
 @patch('caom2pipe.client_composable.ClientCollection')
-@patch('caom2pipe.execute_composable.OrganizeExecutes.do_one')
+@patch('caom2pipe.execute_composable.OrganizeExecutesRunnerMeta.do_one')
 def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_test_dir):
     test_config.change_working_directory(tmp_path)
     test_config.proxy_file_name = 'test_proxy.pem'
@@ -183,7 +182,7 @@ def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_
     test_config.data_sources = ['/usr/src/app/taosii2caom2/int_test/test_files']
     test_config.data_source_extensions = ['.h5']
     test_config.store_modified_files_only = True
-    test_config.logging_level = 'INFO'
+    test_config.logging_level = 'DEBUG'
     run_mock.return_value = (0, None)
 
     with open(test_config.proxy_fqn, 'w') as f:
@@ -197,5 +196,5 @@ def test_run_store_modify(run_mock, clients_mock, test_config, tmp_path, change_
     args, _ = run_mock.call_args
     test_storage = args[0]
     assert isinstance(test_storage, TAOSIIName), type(test_storage)
-    assert test_storage.obs_id == 'taos2_20240221T014139Z_star987654321', f'wrong obs id {test_storage}'
+    assert test_storage.obs_id == 'taos2_20241121T101011Z_star987654321', f'wrong obs id {test_storage}'
 

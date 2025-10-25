@@ -64,10 +64,11 @@
       </caom2:provenance>
       <caom2:artifacts>
         <caom2:artifact caom2:id="c252a6ea-79e1-454a-97cb-63bf2f85bb81">
-          <caom2:uri>cadc:TAOSII/taos2_20241121T100428Z_fsc_145.h5</caom2:uri>
+          <caom2:uri>cadc:TAOSII/2024/11/21/20241121T100428Z/taos2_20241121T100428Z_fsc_145.h5</caom2:uri>
           <caom2:productType>science</caom2:productType>
           <caom2:releaseType>data</caom2:releaseType>
           <caom2:contentType>application/x-hdf5</caom2:contentType>
+          <caom2:contentLength>266576</caom2:contentLength>
           <caom2:parts>
             <caom2:part caom2:id="31ba1bd4-1390-474d-a1e4-f4eb2ce04088">
               <caom2:name>0</caom2:name>
