@@ -21,6 +21,12 @@ todo_file_name: todo.txt
 # .fits, .gz, .json endings as defining the work to be 
 # done.
 use_local_files: True
+data_sources:
+  - /data
+data_source_extensions:
+  - .h5
+recurse_data_sources: True
+cleanup_files_when_storing: False
 # values DEBUG INFO WARNING ERROR
 logging_level: INFO
 # values True False
