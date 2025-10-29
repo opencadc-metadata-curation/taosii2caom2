@@ -44,12 +44,12 @@ Set up a working directory location, on a machine with Docker installed. The mac
 `taosii2caom2` can store files from local disk to CADC storage. This behaviour is controlled by configuration
 information, located in a file named `config.yml`. Most of the `config.yml` values are already set appropriately, but there are a few values that need to be
 set according to the execution environment. For a complete description of the `config.yml` content, see
-https://github.com/opencadc/collection2caom2/wiki/config.yml.
+https://github.com/opencadc-metadata-curation/collection2caom2/wiki/config.yml.
 
 1. Copy the file `config.yml` to the working directory. e.g.:
 
    ```
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/config/config.yml
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/config/config.yml
    ```
 1. In `config.yml`, set the value of `tap_id` to `ivo://cadc.nrc.ca/ams/shared`
 
@@ -72,8 +72,8 @@ https://github.com/opencadc/collection2caom2/wiki/config.yml.
 1. In the main branch of this repository, find the scripts directory, and copy the files `taosii_run.sh`  and `taosii_run_incremental.sh` to the working directory. e.g.:
 
    ```
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run.sh
-   wget https://github.com/opencadc/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run_incremental.sh
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run.sh
+   wget https://github.com/opencadc-metadata-curation/taosii2caom2/blob/5a5e79a33677c15cbcf15975b0ddb85d5c6892f4/scripts/taosii_run_incremental.sh
    ```
 
 1. Ensure the scripts are executable:
@@ -120,8 +120,8 @@ https://github.com/opencadc/collection2caom2/wiki/config.yml.
    ```
 
 1. For some instructions that might be helpful on using containers, see:
-   https://github.com/opencadc/collection2caom2/wiki/Docker-and-Collections
+   https://github.com/opencadc-metadata-curation/collection2caom2/wiki/Docker-and-Collections
 
-1. For some insight into what's happening, see: https://github.com/opencadc/collection2caom2
+1. For some insight into what's happening, see: https://github.com/opencadc-metadata-curation/collection2caom2
 
 1. For Docker information, see: https://www.docker.com
